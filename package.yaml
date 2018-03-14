@@ -21,8 +21,15 @@ description:         Please see the README on Github at <https://github.com/prik
 dependencies:
 - base >= 4.7 && < 5
 - brick
-- vty
+- bytestring
+- cassava
 - containers
+- text
+- lens
+- lens-aeson
+- vector
+- vty
+- wreq
 
 library:
   source-dirs: src

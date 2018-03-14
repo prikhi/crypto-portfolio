@@ -8,4 +8,4 @@ import App
 
 main :: IO ()
 main =
-    void $ defaultMain App.config App.initialState
+    App.initialState >>= void . defaultMain App.config
