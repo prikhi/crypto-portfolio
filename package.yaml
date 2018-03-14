@@ -1,0 +1,49 @@
+name:                crypto-portfolio
+version:             0.1.0.0
+synopsis:            A Cryptocurrency Tracking Portfolio for GDAX & Binance
+category:            Application
+github:              "prikhi/crypto-portfolio"
+license:             GPL-3.0
+author:              "Pavan Rikhi"
+maintainer:          "pavan.rikhi@gmail.com"
+copyright:           "GPL-3.0"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/prikhi/crypto-portfolio#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- brick
+- vty
+
+library:
+  source-dirs: src
+
+executables:
+  crypto-portfolio-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - crypto-portfolio
+
+tests:
+  crypto-portfolio-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - crypto-portfolio
