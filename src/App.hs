@@ -4,14 +4,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module App where
 
+
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
 import Control.Concurrent (ThreadId, forkIO, threadDelay)
 import Control.Concurrent.Async (mapConcurrently_)
 import Control.Lens ((&), (^?), (.~))
-import Control.Monad (void, forever)
+import Control.Monad (void, forever, mzero)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson.Lens (key, _String)
+import Data.Csv ((.!))
 import Data.List (transpose)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
@@ -104,6 +106,25 @@ data Trade
         , tSellCurrency :: Currency
         }
 
+-- | Parse a Trade from a CoinTracking.Info `Trade List` Export
+--
+-- We have to use index-based parsing here because the export contains
+-- 2 `"Cur."` columns
+instance Csv.FromRecord Trade where
+    parseRecord v =
+        if length v == 10 then do
+            trade <- v .! 1
+            if trade == ("Trade" :: String) then
+                Trade
+                    <$> (readDecimalQuantity <$> v .! 2)
+                    <*> (Currency <$> v .! 3)
+                    <*> (readDecimalQuantity <$> v .! 4)
+                    <*> (Currency <$> v .! 5)
+            else
+                mzero
+        else
+            mzero
+
 
 -- | Parse a Coin Tracking `Trade List` CSV Export
 loadTrades :: String -> IO [Trade]
@@ -113,16 +134,8 @@ loadTrades fileName = do
         Left err ->
             putStrLn err >> return []
         Right v ->
-            return . Vec.toList . flip Vec.mapMaybe v $ \(_ :: T.Text, tradeType :: T.Text, buyAmount :: T.Text, buyCurrency :: T.Text, sellAmount :: T.Text, sellCurrency :: T.Text, _ :: T.Text, _ :: T.Text, _ :: T.Text, _ :: T.Text) ->
-                if tradeType == "Trade" then
-                    Just Trade
-                        { tBuyQuantity = readDecimalQuantity $ T.unpack buyAmount
-                        , tBuyCurrency = Currency $ T.unpack buyCurrency
-                        , tSellQuantity = readDecimalQuantity $ T.unpack sellAmount
-                        , tSellCurrency = Currency $ T.unpack sellCurrency
-                        }
-                else
-                    Nothing
+            return $ Vec.toList v
+
 
 readDecimalQuantity :: String -> Quantity
 readDecimalQuantity =
