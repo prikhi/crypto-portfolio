@@ -28,6 +28,7 @@ dependencies:
 - text
 - lens
 - lens-aeson
+- scientific
 - vector
 - vty
 - wreq

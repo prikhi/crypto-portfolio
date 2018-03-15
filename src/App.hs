@@ -17,6 +17,7 @@ import Data.Csv ((.!))
 import Data.List (transpose)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
+import Data.Scientific (Scientific)
 import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
 import Text.Read (readMaybe)
 
@@ -137,9 +138,10 @@ loadTrades fileName = do
             return $ Vec.toList v
 
 
+-- | Read a `Quantity` from a `Scientific`-formatted String
 readDecimalQuantity :: String -> Quantity
 readDecimalQuantity =
-    Quantity . toRational . (read :: String -> Double)
+    Quantity . toRational . (read :: String -> Scientific)
 
 
 type CurrencyCache
