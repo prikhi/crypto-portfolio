@@ -8,7 +8,6 @@ module App where
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
 import Control.Concurrent (ThreadId, forkIO, threadDelay)
-import Control.Concurrent.Async (mapConcurrently_)
 import Control.Lens ((&), (^?), (.~))
 import Control.Monad (void, forever, mzero)
 import Control.Monad.IO.Class (liftIO)
@@ -80,7 +79,7 @@ initialState = do
         $ (,,) <$> newTVar [] <*> newTVar Map.empty <*> newTVar Map.empty
     void . forkIO $ do
         trades <- loadTrades "eth_trades.csv"
-        mapConcurrently_ forkIO
+        mapM_ forkIO
             $ atomically (writeTVar tradesTVar trades)
             : atomically (buildCurrencyCache currencyTVar trades)
             : map (updatePriceCache priceTVar . tBuyCurrency) trades

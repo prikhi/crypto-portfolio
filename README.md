@@ -20,6 +20,7 @@ Some short term things it could do:
 * Use sales in cost basis(FIFO)
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
 * Sorting tables
+* Gracefully handle network & decoding errors
 
 And some bigger goals:
 
