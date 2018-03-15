@@ -269,10 +269,10 @@ updateFromCaches s = atomically $ do
 getBinancePrice :: Currency -> IO (Maybe Quantity)
 getBinancePrice currency = do
     resp <-
-        Wreq.asValue
-            =<< Wreq.getWith
-                (Wreq.defaults & Wreq.param "symbol" .~ [T.pack $ show currency ++ "ETH"])
-                "https://api.binance.com/api/v1/ticker/24hr"
+        Wreq.getWith
+            (Wreq.defaults & Wreq.param "symbol" .~ [T.pack $ show currency ++ "ETH"])
+            "https://api.binance.com/api/v1/ticker/24hr"
+            >>= Wreq.asValue
     let decoded = resp ^? Wreq.responseBody . key "lastPrice" . _String
     return . fmap (Quantity . toRational) $ ((readMaybe :: String -> Maybe Double) . T.unpack) =<< decoded
 
