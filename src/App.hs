@@ -197,17 +197,32 @@ instance Show Quantity where
     show = showQuantity 8
 
 showQuantity :: Int -> Quantity -> String
-showQuantity len (Quantity rat) =
-    (if num < 0 then "-" else "") ++ shows d ("." ++ fractional ++ replicate (len - length fractional) '0')
+showQuantity decimalPlaces (Quantity rat) =
+    sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
     where
-        fractional = take len (go next)
-        (d, next) = abs num `quotRem` den
-        num = numerator rat
-        den = denominator rat
-
-        go 0 = ""
-        go x = let (d_, next_) = (10 * x) `quotRem` den
-                in shows d_ (go next_)
+        sign =
+            if num < 0 then
+                "-"
+            else
+                ""
+        fractionalString =
+            take decimalPlaces (buildFractionalString fractionalPart)
+        zeroPadding =
+            replicate (decimalPlaces - length fractionalString) '0'
+        (wholePart, fractionalPart) =
+            abs num `quotRem` den
+        num =
+            numerator rat
+        den =
+            denominator rat
+        buildFractionalString 0 =
+            ""
+        buildFractionalString fraction =
+            let
+                (digit, remainingFraction) =
+                    (10 * fraction) `quotRem` den
+            in
+                shows digit (buildFractionalString remainingFraction)
 
 data Currency
     = BNB
