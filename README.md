@@ -1,5 +1,7 @@
 # Crypto Portfolio
 
+[![Build Status](https://travis-ci.org/prikhi/crypto-portfolio.svg?branch=master)](https://travis-ci.org/prikhi/crypto-portfolio)
+
 This is a simple prototype at the moment.
 
 It currently:

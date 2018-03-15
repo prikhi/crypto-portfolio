@@ -1,0 +1,23 @@
+---
+sudo: false
+
+language: generic
+
+cache:
+  directories:
+    - $HOME/.stack
+
+before_install:
+  # Download and unpack the stack executable
+  - mkdir -p ~/.local/bin
+  - export PATH=$HOME/.local/bin:$PATH
+  - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 |
+    tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+
+install:
+  # Build dependencies
+  - stack --no-terminal --install-ghc build --only-dependencies
+
+script:
+  # Build the package and its docs
+  - stack --no-terminal build --pedantic --haddock --no-haddock-deps
