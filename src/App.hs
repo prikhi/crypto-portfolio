@@ -117,9 +117,9 @@ loadTrades fileName = do
                 if tradeType == "Trade" then
                     Just Trade
                         { tBuyQuantity = readDecimalQuantity $ T.unpack buyAmount
-                        , tBuyCurrency = read $ T.unpack buyCurrency
+                        , tBuyCurrency = Currency $ T.unpack buyCurrency
                         , tSellQuantity = readDecimalQuantity $ T.unpack sellAmount
-                        , tSellCurrency = read $ T.unpack sellCurrency
+                        , tSellCurrency = Currency $ T.unpack sellCurrency
                         }
                 else
                     Nothing
@@ -224,14 +224,12 @@ showQuantity decimalPlaces (Quantity rat) =
             in
                 shows digit (buildFractionalString remainingFraction)
 
-data Currency
-    = BNB
-    | ETH
-    | NANO
-    | NEO
-    | XMR
-    | XRP
-    deriving (Read, Show, Enum, Bounded, Ord, Eq)
+newtype Currency
+    = Currency { toSymbol :: String }
+    deriving (Ord, Eq)
+
+instance Show Currency where
+    show = toSymbol
 
 
 -- UPDATE
