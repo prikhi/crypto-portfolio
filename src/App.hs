@@ -5,11 +5,17 @@
 module App where
 
 import Brick
+import Brick.BChan (BChan, newBChan, writeBChan)
+import Control.Concurrent (ThreadId, forkIO, threadDelay)
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Lens ((&), (^?), (.~))
+import Control.Monad (void, forever)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson.Lens (key, _String)
 import Data.Foldable (foldlM)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
+import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
 import Text.Read (readMaybe)
 
 import qualified Brick.Widgets.Center as C
@@ -23,37 +29,72 @@ import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
 import qualified Network.Wreq as Wreq
 
-type AppEvent = ()
+
+data AppEvent
+    = Tick
 
 type AppWidget = ()
 
 
 
+-- General Brick App Configuration & Initialization
+
+-- | The Brick Configuration for the application.
 config :: App AppState AppEvent AppWidget
 config =
     App
         { appDraw = view
         , appChooseCursor = const listToMaybe
         , appHandleEvent = update
-        , appStartEvent = return
+        , appStartEvent = liftIO . updateFromCaches
         , appAttrMap = styles
         }
 
+-- | Create a Brick Event Channel that produces a `Tick` event 60 times per
+-- second.
+makeTickChannel :: IO (BChan AppEvent, ThreadId)
+makeTickChannel = do
+    channel <- newBChan 10
+    threadId <- forkIO $ forever $ do
+        writeBChan channel Tick
+        threadDelay $ ticksPerSecond 60
+    return (channel, threadId)
+    where ticksPerSecond tps = 1000000 `div` tps
 
+
+
+-- MODEL
+
+-- | The state of the application, including TVars as caches & asynchronous
+-- update channels.
 data AppState
     = AppState
         { appTrades :: [Trade]
         , appCurrencyCache :: CurrencyCache
+        , appPriceCache :: PriceCache
+        , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceCache)
         }
 
+
+-- | Create the app's TVars, then asynchronously load the trades & build
+-- the Currency & Price caches.
 initialState :: IO AppState
 initialState = do
-    trades <- loadTrades "eth_trades.csv"
-    cache <- buildCache trades
+    (tradesTVar, currencyTVar, priceTVar) <- atomically
+        $ (,,) <$> newTVar [] <*> newTVar Map.empty <*> newTVar Map.empty
+    void . forkIO $ do
+        trades <- loadTrades "eth_trades.csv"
+        mapConcurrently_ forkIO
+            $ atomically (writeTVar tradesTVar trades)
+            : atomically (buildCurrencyCache currencyTVar trades)
+            : map (updatePriceCache priceTVar . tBuyCurrency) trades
     return AppState
-        { appTrades = trades
-        , appCurrencyCache = cache
+        { appTrades = []
+        , appCurrencyCache = Map.empty
+        , appPriceCache = Map.empty
+        , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
         }
+
 
 data Trade
     = Trade
@@ -95,41 +136,53 @@ data CurrencyData
     = CurrencyData
         { cCostBasis :: Quantity
         , cTotalQuantity :: Quantity
-        , cCurrentPrice :: Maybe Quantity
         }
+
+type PriceCache
+    = Map.Map Currency Quantity
 
 
 -- | Build the `CurrencyCache` using a list of Trades.
---
--- This will query Binance's API for the latest trading prices.
-buildCache :: [Trade] -> IO CurrencyCache
-buildCache =
-    foldlM newTrade Map.empty
+buildCurrencyCache :: TVar CurrencyCache -> [Trade] -> STM ()
+buildCurrencyCache cacheTVar trades = do
+    cache <- readTVar cacheTVar
+    writeTVar cacheTVar $ foldl newTrade cache trades
     where
-        newTrade :: CurrencyCache -> Trade -> IO CurrencyCache
-        newTrade cache trade = do
-            let currency = tBuyCurrency trade
-            newVal <- updateOrBuildData trade $ Map.lookup currency cache
-            return $ Map.insert currency newVal cache
+        newTrade :: CurrencyCache -> Trade -> CurrencyCache
+        newTrade cache trade =
+            let
+                currency = tBuyCurrency trade
+                newVal = updateOrBuildData trade $ Map.lookup currency cache
+            in
+                Map.insert currency newVal cache
 
-        updateOrBuildData :: Trade -> Maybe CurrencyData -> IO CurrencyData
+        updateOrBuildData :: Trade -> Maybe CurrencyData -> CurrencyData
         updateOrBuildData trade = \case
-            Nothing -> do
-                maybeCurrentPrice <- getBinancePrice $ tBuyCurrency trade
-                return CurrencyData
+            Nothing ->
+                CurrencyData
                     { cCostBasis = tSellQuantity trade / tBuyQuantity trade
                     , cTotalQuantity = tBuyQuantity trade
-                    , cCurrentPrice = maybeCurrentPrice
                     }
             Just cData ->
-                return CurrencyData
+                CurrencyData
                     { cCostBasis =
                         (cCostBasis cData * cTotalQuantity cData + tSellQuantity trade)
                             / (cTotalQuantity cData + tBuyQuantity trade)
                     , cTotalQuantity =
                         cTotalQuantity cData + tBuyQuantity trade
-                    , cCurrentPrice = cCurrentPrice cData
                     }
+
+updatePriceCache :: TVar PriceCache -> Currency -> IO ()
+updatePriceCache cacheTVar currency = do
+    maybePrice <- getBinancePrice currency
+    case maybePrice of
+        Just p ->
+            atomically $ do
+                cache <- readTVar cacheTVar
+                let newCache = Map.insert currency p cache
+                writeTVar cacheTVar newCache
+        Nothing ->
+            return ()
 
 
 -- Fields
@@ -174,8 +227,28 @@ update s = \case
                 halt s
             _ ->
                 continue s
+    AppEvent appEv ->
+        case appEv of
+            Tick ->
+                liftIO (updateFromCaches s) >>= continue
+
     _ ->
         continue s
+
+
+updateFromCaches :: AppState -> IO AppState
+updateFromCaches s = atomically $ do
+    let (tradesTVar, currencyTVar, priceTVar) = appCacheTVars s
+    (trades, currency, price) <-
+        (,,)
+            <$> readTVar tradesTVar
+            <*> readTVar currencyTVar
+            <*> readTVar priceTVar
+    return s
+        { appTrades = trades
+        , appCurrencyCache = currency
+        , appPriceCache = price
+        }
 
 
 getBinancePrice :: Currency -> IO (Maybe Quantity)
@@ -200,7 +273,7 @@ view s =
             $ vBox
                 $ vLimit 1 tableHeader
                 : B.hBorder
-                : Map.foldlWithKey tableRows [] (appCurrencyCache s)
+                : Map.foldlWithKey (tableRows $ appPriceCache s) [] (appCurrencyCache s)
         ]
     ]
 
@@ -220,20 +293,20 @@ tableHeader =
 
 
 -- TODO: Move Calculations out of here into a cache so we can easily do totals as well
-tableRows :: [Widget AppWidget] -> Currency -> CurrencyData -> [Widget AppWidget]
-tableRows ws currency cData =
+tableRows :: PriceCache -> [Widget AppWidget] -> Currency -> CurrencyData -> [Widget AppWidget]
+tableRows priceCache ws currency cData =
     let
-        maybePriceChange = percentChange (cCostBasis cData) <$> cCurrentPrice cData
+        maybePrice = Map.lookup currency priceCache
+        maybePriceChange = percentChange (cCostBasis cData) <$> maybePrice
         totalCost = cTotalQuantity cData * cCostBasis cData
-        maybeCurrentValue = (* cTotalQuantity cData) <$> cCurrentPrice cData
+        maybeCurrentValue = (* cTotalQuantity cData) <$> maybePrice
     in
         flip (:) ws
             $ vLimit 1 (hBox
                 [ centeredString . show $ currency
                 , centeredString . show $ cTotalQuantity cData
                 , centeredString . show $ cCostBasis cData
-                , centeredString . maybe "Update Failure" show
-                    $ cCurrentPrice cData
+                , centeredString $ maybe "Update Failure" show maybePrice
                 , centeredString $ maybe "--" show maybePriceChange
                 , centeredString $ show totalCost
                 , centeredString $ maybe "--" show maybeCurrentValue
