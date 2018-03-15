@@ -33,13 +33,6 @@ import qualified Graphics.Vty as V
 import qualified Network.Wreq as Wreq
 
 
-data AppEvent
-    = Tick
-
-type AppWidget = ()
-
-
-
 -- General Brick App Configuration & Initialization
 
 -- | The Brick Configuration for the application.
@@ -79,7 +72,7 @@ data AppState
         }
 
 
--- | Create the app's TVars, then asynchronously load the trades & build
+-- | Create the app's `TVar`s, then asynchronously load the trades & build
 -- the Currency & Price caches.
 initialState :: IO AppState
 initialState = do
@@ -99,6 +92,7 @@ initialState = do
         }
 
 
+-- | A Trade of one `Currency` for `Another`
 data Trade
     = Trade
         { tBuyQuantity :: Quantity
@@ -144,15 +138,18 @@ readDecimalQuantity =
     Quantity . toRational . (read :: String -> Scientific)
 
 
+-- | A Mapping From Currencies to Their Calculated Data
 type CurrencyCache
     = Map.Map Currency CurrencyData
 
+-- | Data We Have Calculated from the `Trade`s.
 data CurrencyData
     = CurrencyData
         { cCostBasis :: Quantity
         , cTotalQuantity :: Quantity
         }
 
+-- | A Mapping from Currencies to Their Current Price per Unit.
 type PriceCache
     = Map.Map Currency Quantity
 
@@ -187,6 +184,7 @@ buildCurrencyCache cacheTVar trades = do
                         cTotalQuantity cData + tBuyQuantity trade
                     }
 
+-- | Query Binance for a Currency's Price & Update the PriceCache.
 updatePriceCache :: TVar PriceCache -> Currency -> IO ()
 updatePriceCache cacheTVar currency = do
     maybePrice <- getBinancePrice currency
@@ -202,15 +200,18 @@ updatePriceCache cacheTVar currency = do
 
 -- Fields
 
+-- | An Amount of a Coin that has been Bought/Sold, or a Per-Unit Price.
 -- TODO: Make Integer Instead of Rational, Need to Figure Out Atomic Units
 newtype Quantity
     = Quantity
         { fromQuantity :: Rational
         } deriving (Num, Fractional)
 
+-- | Show 8 Decimal Places by Default.
 instance Show Quantity where
     show = showQuantity 8
 
+-- | Render a `Quantity` with a Fixed Number of Decimal Places
 showQuantity :: Int -> Quantity -> String
 showQuantity decimalPlaces (Quantity rat) =
     sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
@@ -239,16 +240,24 @@ showQuantity decimalPlaces (Quantity rat) =
             in
                 shows digit (buildFractionalString remainingFraction)
 
+-- | Used as an Identifier for CryptoCurrencies.
 newtype Currency
     = Currency { toSymbol :: String }
     deriving (Ord, Eq)
 
+-- | Currencies are Represented by their Ticker Symbol
 instance Show Currency where
     show = toSymbol
 
 
 -- UPDATE
 
+-- | The Application-Specific Events
+data AppEvent
+    = Tick
+
+
+-- | Update the State on Key Events & `Tick`s.
 update :: AppState -> BrickEvent AppWidget AppEvent -> EventM AppWidget (Next AppState)
 update s = \case
     VtyEvent ev ->
@@ -266,6 +275,7 @@ update s = \case
         continue s
 
 
+-- | Update the Application's State Using the `appCacheTVars`.
 updateFromCaches :: AppState -> IO AppState
 updateFromCaches s = atomically $ do
     let (tradesTVar, currencyTVar, priceTVar) = appCacheTVars s
@@ -281,6 +291,7 @@ updateFromCaches s = atomically $ do
         }
 
 
+-- | Query Binance for a Currency's Last Sale Price in Ethereum-per-coin.
 getBinancePrice :: Currency -> IO (Maybe Quantity)
 getBinancePrice currency = do
     resp <-
@@ -295,20 +306,35 @@ getBinancePrice currency = do
 
 -- RENDER
 
+-- | Represents the Unique Identifiers of Widgets Used in the Application.
+type AppWidget
+    = ()
+
+
+-- | Render the Ethereum Gains Table
+--
+-- The table is built by stacking cells into columns, and then placing the
+-- rows side-by-side. This is done to ensure every cell in a column expands
+-- to the full width.
+--
+-- Cells are limited to a height of 1 line.
+--
+-- TODO: Add Totals for some columns
 view :: AppState -> [Widget AppWidget]
 view s =
     [ vBox
-        [ B.hBorderWithLabel (str " Etherium Gains ")
+        [ B.hBorderWithLabel (str " Ethereum Gains ")
         , B.border
             $ padLeftRight 1
             $ hBox . map (vBox . map (vLimit 1)) $ transpose
                 $ tableHeader
                 : replicate (length tableHeader) B.hBorder
-                : reverse (Map.foldlWithKey (tableRows $ appPriceCache s) [] (appCurrencyCache s))
+                : reverse (Map.foldlWithKey (tableRow $ appPriceCache s) [] (appCurrencyCache s))
         ]
     ]
 
 
+-- | Render the Header for the Ethereum Gains Table
 tableHeader :: [Widget AppWidget]
 tableHeader =
     [ centeredString "Currency"
@@ -322,9 +348,10 @@ tableHeader =
     ]
 
 
+-- | Render a Currency's Row in the Ethereum Gains Table
 -- TODO: Move Calculations out of here into a cache so we can easily do totals as well
-tableRows :: PriceCache -> [[Widget AppWidget]] -> Currency -> CurrencyData -> [[Widget AppWidget]]
-tableRows priceCache ws currency cData =
+tableRow :: PriceCache -> [[Widget AppWidget]] -> Currency -> CurrencyData -> [[Widget AppWidget]]
+tableRow priceCache ws currency cData =
     let
         maybePrice = Map.lookup currency priceCache
         maybePriceChange = percentChange (cCostBasis cData) <$> maybePrice
@@ -348,9 +375,11 @@ tableRows priceCache ws currency cData =
         percentChange original new =
             (new - original) / original * 100
 
+-- | Center a String
 centeredString :: String -> Widget n
 centeredString = C.center . str
 
+-- | Align a String to the Right of it's Parent Widget.
 alignRight :: String -> Widget n
 alignRight = padLeft Max . str
 
@@ -358,6 +387,9 @@ alignRight = padLeft Max . str
 
 -- STYLE
 
+-- | The Style Map for the Application.
+--
+-- Currently we only use the terminal's default values.
 styles :: AppState -> AttrMap
 styles _ =
     attrMap V.defAttr
