@@ -18,7 +18,7 @@ import Data.List (transpose)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
-import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
+import GHC.Conc (TVar, STM, newTVar, readTVar, readTVarIO, writeTVar, atomically)
 import Text.Read (readMaybe)
 
 import qualified Brick.Widgets.Center as C
@@ -264,6 +264,8 @@ update s = \case
         case ev of
             V.EvKey (V.KChar 'q') [] ->
                 halt s
+            V.EvKey (V.KChar 'r') [] ->
+                liftIO (refreshPriceCache s) >> continue s
             _ ->
                 continue s
     AppEvent appEv ->
@@ -273,6 +275,14 @@ update s = \case
 
     _ ->
         continue s
+
+
+-- | Asynchronously Pull the Latest Binance Prices Into the Cache.
+refreshPriceCache :: AppState -> IO ()
+refreshPriceCache s = do
+    let (tradesTVar, _, priceTVar) = appCacheTVars s
+    trades <- readTVarIO tradesTVar
+    mapM_ (forkIO . updatePriceCache priceTVar . tBuyCurrency) trades
 
 
 -- | Update the Application's State Using the `appCacheTVars`.

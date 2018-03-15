@@ -47,7 +47,7 @@ Now run the app:
 
     stack exec crypto-portfolio-exe
 
-Press `q` to quit.
+Press `r` to refresh the prices & `q` to quit.
 
 
 ## License
