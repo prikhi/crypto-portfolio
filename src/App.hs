@@ -194,18 +194,20 @@ newtype Quantity
         } deriving (Num, Fractional)
 
 instance Show Quantity where
-    show (Quantity rat) =
-        (if num < 0 then "-" else " ") ++ shows d ("." ++ fractional ++ replicate (len - length fractional) '0')
-        where
-            fractional = take len (go next)
-            len = 8
-            (d, next) = abs num `quotRem` den
-            num = numerator rat
-            den = denominator rat
+    show = showQuantity 8
 
-            go 0 = ""
-            go x = let (d_, next_) = (10 * x) `quotRem` den
-                    in shows d_ (go next_)
+showQuantity :: Int -> Quantity -> String
+showQuantity len (Quantity rat) =
+    (if num < 0 then "-" else "") ++ shows d ("." ++ fractional ++ replicate (len - length fractional) '0')
+    where
+        fractional = take len (go next)
+        (d, next) = abs num `quotRem` den
+        num = numerator rat
+        den = denominator rat
+
+        go 0 = ""
+        go x = let (d_, next_) = (10 * x) `quotRem` den
+                in shows d_ (go next_)
 
 data Currency
     = BNB
@@ -305,7 +307,7 @@ tableRows priceCache ws currency cData =
         , alignRight . show $ cTotalQuantity cData
         , alignRight . show $ cCostBasis cData
         , alignRight $ maybe "Loading..." show maybePrice
-        , alignRight $ maybeToText maybePriceChange
+        , alignRight $ maybe "--" (showQuantity 2) maybePriceChange
         , alignRight $ show totalCost
         , alignRight $ maybeToText maybeCurrentValue
         , alignRight $ maybeToText
