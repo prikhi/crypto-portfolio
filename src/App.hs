@@ -12,7 +12,7 @@ import Control.Lens ((&), (^?), (.~))
 import Control.Monad (void, forever)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson.Lens (key, _String)
-import Data.Foldable (foldlM)
+import Data.List (transpose)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
 import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
@@ -270,30 +270,30 @@ view s =
     [ vBox
         [ B.hBorderWithLabel (str " Etherium Gains ")
         , B.border
-            $ vBox
-                $ vLimit 1 tableHeader
-                : B.hBorder
-                : Map.foldlWithKey (tableRows $ appPriceCache s) [] (appCurrencyCache s)
+            $ padLeftRight 1
+            $ hBox . map (vBox . map (vLimit 1)) $ transpose
+                $ tableHeader
+                : replicate (length tableHeader) B.hBorder
+                : reverse (Map.foldlWithKey (tableRows $ appPriceCache s) [] (appCurrencyCache s))
         ]
     ]
 
 
-tableHeader :: Widget AppWidget
+tableHeader :: [Widget AppWidget]
 tableHeader =
-    hBox
-        [ centeredString "Currency"
-        , centeredString "Total Quantity"
-        , centeredString "Cost Per Unit"
-        , centeredString "Current Price"
-        , centeredString "% Change"
-        , centeredString "Total Cost"
-        , centeredString "Current Value"
-        , centeredString "Gain / Loss"
-        ]
+    [ centeredString "Currency"
+    , alignRight "Total Quantity"
+    , alignRight "Cost Per Unit"
+    , alignRight "Current Price"
+    , alignRight "% Change"
+    , alignRight "Total Cost"
+    , alignRight "Current Value"
+    , alignRight "Gain / Loss"
+    ]
 
 
 -- TODO: Move Calculations out of here into a cache so we can easily do totals as well
-tableRows :: PriceCache -> [Widget AppWidget] -> Currency -> CurrencyData -> [Widget AppWidget]
+tableRows :: PriceCache -> [[Widget AppWidget]] -> Currency -> CurrencyData -> [[Widget AppWidget]]
 tableRows priceCache ws currency cData =
     let
         maybePrice = Map.lookup currency priceCache
@@ -301,23 +301,28 @@ tableRows priceCache ws currency cData =
         totalCost = cTotalQuantity cData * cCostBasis cData
         maybeCurrentValue = (* cTotalQuantity cData) <$> maybePrice
     in
-        flip (:) ws
-            $ vLimit 1 (hBox
-                [ centeredString . show $ currency
-                , centeredString . show $ cTotalQuantity cData
-                , centeredString . show $ cCostBasis cData
-                , centeredString $ maybe "Update Failure" show maybePrice
-                , centeredString $ maybe "--" show maybePriceChange
-                , centeredString $ show totalCost
-                , centeredString $ maybe "--" show maybeCurrentValue
-                , centeredString . maybe "--" show
-                    $ (\current -> current - totalCost) <$> maybeCurrentValue
-                ])
-    where percentChange original new =
+        [ centeredString $ show currency
+        , alignRight . show $ cTotalQuantity cData
+        , alignRight . show $ cCostBasis cData
+        , alignRight $ maybe "Loading..." show maybePrice
+        , alignRight $ maybeToText maybePriceChange
+        , alignRight $ show totalCost
+        , alignRight $ maybeToText maybeCurrentValue
+        , alignRight $ maybeToText
+            $ (\current -> current - totalCost) <$> maybeCurrentValue
+        ]
+        : ws
+    where
+        maybeToText =
+            maybe "--" show
+        percentChange original new =
             (new - original) / original * 100
 
 centeredString :: String -> Widget n
 centeredString = C.center . str
+
+alignRight :: String -> Widget n
+alignRight = padLeft Max . str
 
 
 
