@@ -11,11 +11,15 @@ It currently:
 * Renders a table showing the amount, cost, value, % change & gains for each
   coin.
 
+![The User Interface of the Crypto Portfolio Program, Showing a Table of Costs, Values, and Gains for Several Cryptocurrencies](http://bugs.sleepanarchy.com/projects/crypto-portfolio/repository/revisions/master/entry/screenshot.png "KSP Automation Screenshot")
+
+
 Some short term things it could do:
 
 * Also calculate dollar amount using GDAX prices
 * Use sales in cost basis(FIFO)
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
+* Sorting tables
 
 And some bigger goals:
 
@@ -26,6 +30,8 @@ And some bigger goals:
 * Track Exchanges
 * Import trades directly from GDAX & Binance API or exports
 * Have additional views(portfolio, add/edit trades, watch list, alerts, etc.)
+* Refactor table rendering into it's own module, maybe release as Brick Widget
+
 
 ## Usage
 
