@@ -12,5 +12,8 @@ import qualified Graphics.Vty as V
 main :: IO ()
 main = do
     (tickChannel, tickThreadId) <- makeTickChannel
-    App.initialState >>= void . customMain (V.mkVty V.defaultConfig) (Just tickChannel) App.config
+    App.initialState
+        >>= void . customMain defaultVty (Just tickChannel) App.config
     killThread tickThreadId
+    where defaultVty =
+            V.mkVty V.defaultConfig

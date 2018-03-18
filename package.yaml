@@ -20,6 +20,7 @@ description:         Please see the README on Github at <https://github.com/prik
 
 dependencies:
 - base >= 4.7 && < 5
+- aeson
 - brick
 - bytestring
 - cassava
@@ -30,7 +31,9 @@ dependencies:
 - scientific
 - vector
 - vty
+- websockets
 - wreq
+- wuss
 
 library:
   source-dirs: src

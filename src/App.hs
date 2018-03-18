@@ -7,7 +7,7 @@ module App where
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent (ThreadId, forkIO, threadDelay)
+import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
 import Control.Lens ((&), (^?), (.~))
 import Control.Monad (void, forever, mzero)
 import Control.Monad.IO.Class (liftIO)
@@ -30,6 +30,8 @@ import qualified Data.Text as T
 import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
 import qualified Network.Wreq as Wreq
+
+import GDAX
 
 
 -- General Brick App Configuration & Initialization
@@ -68,6 +70,7 @@ data AppState
         , appCurrencyCache :: CurrencyCache
         , appPriceCache :: PriceCache
         , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceCache)
+        , appGDAXThread :: ThreadId
         }
 
 
@@ -83,11 +86,18 @@ initialState = do
             $ atomically (writeTVar tradesTVar trades)
             : atomically (buildCurrencyCache currencyTVar trades)
             : map (updatePriceCache priceTVar . tBuyCurrency) trades
+    gdaxThread <- forkIO . GDAX.connectAndSubscribe $ \priceString ->
+        atomically $ do
+            cache <- readTVar priceTVar
+            let price = readDecimalQuantity priceString
+                newCache = Map.insert eth price cache
+            writeTVar priceTVar newCache
     return AppState
         { appTrades = []
         , appCurrencyCache = Map.empty
         , appPriceCache = Map.empty
         , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
+        , appGDAXThread = gdaxThread
         }
 
 
@@ -248,6 +258,11 @@ newtype Currency
 instance Show Currency where
     show = toSymbol
 
+-- | The `Currency` Representing Ethereum.
+eth :: Currency
+eth =
+    Currency "ETH"
+
 
 -- UPDATE
 
@@ -262,7 +277,7 @@ update s = \case
     VtyEvent ev ->
         case ev of
             V.EvKey (V.KChar 'q') [] ->
-                halt s
+                liftIO (killThread $ appGDAXThread s) >> halt s
             V.EvKey (V.KChar 'r') [] ->
                 liftIO (refreshPriceCache s) >> continue s
             _ ->
@@ -339,8 +354,20 @@ view s =
                 $ tableHeader
                 : replicate (length tableHeader) B.hBorder
                 : reverse (Map.foldlWithKey (tableRow $ appPriceCache s) [] (appCurrencyCache s))
+        , statusBar s
         ]
     ]
+
+
+-- | Render a Simple Status Bar Showing the Current USD Price for ETH.
+statusBar :: AppState -> Widget AppWidget
+statusBar s =
+    padLeft Max
+        $ padRight (Pad 1)
+        $ str
+        $ maybe "Loading GDAX Stream..." (("ETH-USD: $" ++) . showQuantity 2)
+        $ Map.lookup eth
+        $ appPriceCache s
 
 
 -- | Render the Header for the Ethereum Gains Table
