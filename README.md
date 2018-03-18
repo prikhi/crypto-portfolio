@@ -21,6 +21,7 @@ Some short term things it could do:
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
 * Sorting tables
 * Gracefully handle network & decoding errors
+* Colors
 
 And some bigger goals:
 
