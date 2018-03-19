@@ -126,6 +126,7 @@ data AggregateData
         { aTotalCost :: Quantity
         , aTotalValue :: Quantity
         , aGainLoss :: Quantity
+        , aTotalChange :: Rational
         }
 
 
@@ -224,7 +225,7 @@ initialState = do
     return AppState
         { appTrades = []
         , appCurrencyCache = Map.empty
-        , appAggregateData = AggregateData 0 0 0
+        , appAggregateData = AggregateData 0 0 0 0
         , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
         , appPriceThreads = gdaxThread : binanceThreads
         }
@@ -371,6 +372,7 @@ updateFromCaches s = atomically $ do
                     { aTotalCost = costs
                     , aTotalValue = value
                     , aGainLoss = value - costs
+                    , aTotalChange = fromQuantity $ (value - costs) / costs * 100
                     }
             where
                 collectCostAndValue (cost, value) cData =
@@ -466,8 +468,8 @@ tableFooter AppState { appCurrencyCache, appAggregateData } =
     , [ str ""
       , str ""
       , str ""
-      , str ""
       , alignRight "Totals:"
+      , alignRight $ showRational 2 $ aTotalChange appAggregateData
       , alignRight $ show $ aTotalCost appAggregateData
       , alignRight $ show $ aTotalValue appAggregateData
       , alignRight $ show $ aGainLoss appAggregateData
@@ -476,7 +478,7 @@ tableFooter AppState { appCurrencyCache, appAggregateData } =
       , str ""
       , str ""
       , str ""
-      , alignRight "USD:"
+      , str ""
       , inUSD $ aTotalCost appAggregateData
       , inUSD $ aTotalValue appAggregateData
       , inUSD $ aGainLoss appAggregateData
@@ -484,7 +486,7 @@ tableFooter AppState { appCurrencyCache, appAggregateData } =
     ]
     where inUSD d =
             alignRight
-                . maybe "Loading..." (showQuantity 2 . (* d))
+                . maybe "Loading..." (("$" ++) . showQuantity 2 . (* d))
                 $ cPrice =<< Map.lookup eth appCurrencyCache
 
 -- | Center a String
