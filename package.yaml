@@ -18,6 +18,10 @@ extra-source-files:
 # common to point users to the README.md file.
 description:         Please see the README on Github at <https://github.com/prikhi/crypto-portfolio#readme>
 
+ghc-options:
+- -Wall
+- -Werror
+
 dependencies:
 - base >= 4.7 && < 5
 - aeson
