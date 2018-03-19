@@ -25,20 +25,16 @@ ghc-options:
 dependencies:
 - base >= 4.7 && < 5
 - aeson
-- async
 - brick
 - bytestring
 - cassava
 - containers
 - text
-- lens
-- lens-aeson
 - scientific
 - stm
 - vector
 - vty
 - websockets
-- wreq
 - wuss
 
 library:

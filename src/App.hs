@@ -8,20 +8,16 @@ module App where
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
 import Control.Concurrent.STM (modifyTVar)
-import Control.Lens ((&), (^?), (.~))
-import Control.Monad ((<=<), void, forever, mzero)
+import Control.Monad ((<=<), void, forever, mzero, forM)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson.Lens (key, _String)
 import Data.Csv ((.!))
-import Data.List (transpose, nubBy)
+import Data.List (transpose, nub, nubBy)
 import Data.Maybe (listToMaybe, fromMaybe)
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
-import GHC.Conc (TVar, STM, newTVar, readTVar, readTVarIO, writeTVar, atomically)
-import Text.Read (readMaybe)
+import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
 
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
@@ -29,11 +25,10 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as LC
 import qualified Data.Csv as Csv
 import qualified Data.Map as Map
-import qualified Data.Text as T
 import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
-import qualified Network.Wreq as Wreq
 
+import Binance
 import GDAX
 
 
@@ -73,7 +68,7 @@ data AppState
         , appCurrencyCache :: CurrencyCache
         , appAggregateData :: AggregateData
         , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceUpdateQueue)
-        , appGDAXThread :: ThreadId
+        , appPriceThreads :: [ThreadId]
         }
 
 
@@ -212,21 +207,26 @@ initialState :: IO AppState
 initialState = do
     (tradesTVar, currencyTVar, priceTVar) <- atomically
         $ (,,) <$> newTVar [] <*> newTVar initialCache <*> newTVar []
-    void . forkIO $ do
-        trades <- loadTrades "eth_trades.csv"
-        atomically $ do
-            writeTVar tradesTVar trades
-            buildCurrencyCache currencyTVar trades
-        mapConcurrently_ (updatePrice priceTVar . tBuyCurrency) trades
-    gdaxThread <- forkIO . GDAX.connectAndSubscribe $ \priceString ->
+    trades <- loadTrades "eth_trades.csv"
+    void . forkIO . atomically $ do
+        writeTVar tradesTVar trades
+        buildCurrencyCache currencyTVar trades
+    gdaxThread <- forkIO . GDAX.connect $ \priceString ->
         atomically
-            $ modifyTVar priceTVar ((:) (eth, readDecimalQuantity priceString))
+            $ modifyTVar priceTVar
+            $ (:) (eth, readDecimalQuantity priceString)
+    let currencies = nub $ map tBuyCurrency trades
+    binanceThreads <- forM currencies $ \c@(Currency symbol) ->
+        forkIO . Binance.connect symbol $ \priceString ->
+            atomically
+                $ modifyTVar priceTVar
+                $ (:) (c, readDecimalQuantity priceString)
     return AppState
         { appTrades = []
         , appCurrencyCache = Map.empty
         , appAggregateData = AggregateData 0 0 0
         , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
-        , appGDAXThread = gdaxThread
+        , appPriceThreads = gdaxThread : binanceThreads
         }
     where
           -- | Add dummy ETH data since it's not added by buildCurrencyCache
@@ -300,17 +300,6 @@ buildCurrencyCache cacheTVar trades = do
                     }
 
 
--- | Query Binance for a Currency's Price & Update the PriceCache.
-updatePrice :: TVar PriceUpdateQueue -> Currency -> IO ()
-updatePrice updateQueue currency = do
-    maybePrice <- getBinancePrice currency
-    case maybePrice of
-        Just p ->
-            atomically $ modifyTVar updateQueue ((:) (currency, p))
-        Nothing ->
-            return ()
-
-
 
 -- UPDATE
 
@@ -325,9 +314,7 @@ update s = \case
     VtyEvent ev ->
         case ev of
             V.EvKey (V.KChar 'q') [] ->
-                liftIO (killThread $ appGDAXThread s) >> halt s
-            V.EvKey (V.KChar 'r') [] ->
-                liftIO (refreshPriceCache s) >> continue s
+                liftIO (mapM killThread $ appPriceThreads s) >> halt s
             _ ->
                 continue s
     AppEvent appEv ->
@@ -337,14 +324,6 @@ update s = \case
 
     _ ->
         continue s
-
-
--- | Asynchronously Pull the Latest Binance Prices Into the Cache.
-refreshPriceCache :: AppState -> IO ()
-refreshPriceCache s = do
-    let (tradesTVar, _, priceTVar) = appCacheTVars s
-    trades <- readTVarIO tradesTVar
-    mapM_ (forkIO . updatePrice priceTVar . tBuyCurrency) trades
 
 
 -- | Update the Application's State Using the `appCacheTVars`.
@@ -399,18 +378,6 @@ updateFromCaches s = atomically $ do
         percentChange :: Quantity -> Quantity -> Rational
         percentChange (Quantity original) (Quantity new) =
             (new - original) / original * 100
-
-
--- | Query Binance for a Currency's Last Sale Price in Ethereum-per-coin.
-getBinancePrice :: Currency -> IO (Maybe Quantity)
-getBinancePrice currency = do
-    resp <-
-        Wreq.getWith
-            (Wreq.defaults & Wreq.param "symbol" .~ [T.pack $ show currency ++ "ETH"])
-            "https://api.binance.com/api/v1/ticker/24hr"
-            >>= Wreq.asValue
-    let decoded = resp ^? Wreq.responseBody . key "lastPrice" . _String
-    return . fmap (Quantity . toRational) $ ((readMaybe :: String -> Maybe Double) . T.unpack) =<< decoded
 
 
 

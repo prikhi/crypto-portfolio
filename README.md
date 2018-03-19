@@ -7,9 +7,10 @@ This is a simple prototype at the moment.
 It currently:
 
 * Reads my cointracking.info Trade List from a CSV
-* Fetches the current prices of each of my coins from Binance
-* Renders a table showing the amount, cost, value, % change & gains for each
-  coin.
+* Streams the current price of ETH in USD from GDAX
+* Streams the current prices of each of my coins from Binance
+* Shows the amount, cost, value, % change & gains for each coin.
+* Shows the total cost, value, & gains for portfolio, in ETH & USD.
 
 ![The User Interface of the Crypto Portfolio Program, Showing a Table of Costs, Values, and Gains for Several Cryptocurrencies](http://bugs.sleepanarchy.com/projects/crypto-portfolio/repository/revisions/master/entry/screenshot.png "KSP Automation Screenshot")
 
@@ -33,6 +34,8 @@ And some bigger goals:
 * Import trades directly from GDAX & Binance API or exports
 * Have additional views(portfolio, add/edit trades, watch list, alerts, etc.)
 * Refactor table rendering into it's own module, maybe release as Brick Widget
+* Debug/info logging
+* Coin research views(subreddit, cmc data, wikipedia)
 
 
 ## Usage
@@ -49,7 +52,7 @@ Now run the app:
 
     stack exec crypto-portfolio-exe
 
-Press `r` to refresh the prices & `q` to quit.
+Press `q` to quit.
 
 
 ## License

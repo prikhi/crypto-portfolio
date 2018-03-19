@@ -16,8 +16,8 @@ import qualified Data.Text as T
 -- | Connect to GDAX, Subscribe to the ETH-USD Ticker Channel & Run the
 -- Specified Action with the Price Everytime we Receive a Message.
 -- TODO: Have action take a rational or quantity - requires more modules
-connectAndSubscribe :: (String -> IO ()) -> IO ()
-connectAndSubscribe action = connect $ \connection -> do
+connect :: (String -> IO ()) -> IO ()
+connect action = run $ \connection -> do
     sendTextData connection $ encode Subscribe
     (_ :: Maybe GDAXResponse) <- decode <$> receiveData connection
     forever $ do
@@ -27,7 +27,7 @@ connectAndSubscribe action = connect $ \connection -> do
                 action p
             _ ->
                 return ()
-    where connect =
+    where run =
             runSecureClient "ws-feed.gdax.com" 443 "/"
 
 
