@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module App where
@@ -7,13 +8,15 @@ module App where
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
+import Control.Concurrent.Async (mapConcurrently_)
 import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
+import Control.Concurrent.STM (modifyTVar)
 import Control.Lens ((&), (^?), (.~))
-import Control.Monad (void, forever, mzero)
+import Control.Monad ((<=<), void, forever, mzero)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson.Lens (key, _String)
 import Data.Csv ((.!))
-import Data.List (transpose)
+import Data.List (transpose, nubBy)
 import Data.Maybe (listToMaybe)
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
@@ -68,8 +71,7 @@ data AppState
     = AppState
         { appTrades :: [Trade]
         , appCurrencyCache :: CurrencyCache
-        , appPriceCache :: PriceCache
-        , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceCache)
+        , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceUpdateQueue)
         , appGDAXThread :: ThreadId
         }
 
@@ -79,26 +81,39 @@ data AppState
 initialState :: IO AppState
 initialState = do
     (tradesTVar, currencyTVar, priceTVar) <- atomically
-        $ (,,) <$> newTVar [] <*> newTVar Map.empty <*> newTVar Map.empty
+        $ (,,) <$> newTVar [] <*> newTVar initialCache <*> newTVar []
     void . forkIO $ do
         trades <- loadTrades "eth_trades.csv"
-        mapM_ forkIO
-            $ atomically (writeTVar tradesTVar trades)
-            : atomically (buildCurrencyCache currencyTVar trades)
-            : map (updatePriceCache priceTVar . tBuyCurrency) trades
-    gdaxThread <- forkIO . GDAX.connectAndSubscribe $ \priceString ->
         atomically $ do
-            cache <- readTVar priceTVar
-            let price = readDecimalQuantity priceString
-                newCache = Map.insert eth price cache
-            writeTVar priceTVar newCache
+            writeTVar tradesTVar trades
+            buildCurrencyCache currencyTVar trades
+        mapConcurrently_ (updatePrice priceTVar . tBuyCurrency) trades
+    gdaxThread <- forkIO . GDAX.connectAndSubscribe $ \priceString ->
+        atomically
+            $ modifyTVar priceTVar ((:) (eth, readDecimalQuantity priceString))
     return AppState
         { appTrades = []
         , appCurrencyCache = Map.empty
-        , appPriceCache = Map.empty
         , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
         , appGDAXThread = gdaxThread
         }
+    where
+          -- | Add dummy ETH data since it's not added by buildCurrencyCache
+          -- TODO: Might be easier to add separate ETH price to AppState
+          initialCache :: CurrencyCache
+          initialCache = Map.fromList
+            [ ( eth
+              , CurrencyData
+                { cCostBasis = 0
+                , cTotalQuantity = 0
+                , cTotalCost = 0
+                , cPrice = Nothing
+                , cPriceChange = Nothing
+                , cCurrentValue = Nothing
+                , cGainLoss = Nothing
+                }
+              )
+            ]
 
 
 -- | A Trade of one `Currency` for `Another`
@@ -151,16 +166,21 @@ readDecimalQuantity =
 type CurrencyCache
     = Map.Map Currency CurrencyData
 
--- | Data We Have Calculated from the `Trade`s.
+-- | Data We Have Calculated from the `Trade`s & Prices.
 data CurrencyData
     = CurrencyData
         { cCostBasis :: Quantity
         , cTotalQuantity :: Quantity
+        , cTotalCost :: Quantity
+        , cPrice :: Maybe Quantity
+        , cPriceChange :: Maybe Rational
+        , cCurrentValue :: Maybe Quantity
+        , cGainLoss :: Maybe Quantity
         }
 
--- | A Mapping from Currencies to Their Current Price per Unit.
-type PriceCache
-    = Map.Map Currency Quantity
+-- | A List of Price Updates to Apply, with Newer Updates at the Beginning.
+type PriceUpdateQueue
+    = [(Currency, Quantity)]
 
 
 -- | Build the `CurrencyCache` using a list of Trades.
@@ -183,6 +203,11 @@ buildCurrencyCache cacheTVar trades = do
                 CurrencyData
                     { cCostBasis = tSellQuantity trade / tBuyQuantity trade
                     , cTotalQuantity = tBuyQuantity trade
+                    , cTotalCost = tSellQuantity trade
+                    , cPrice = Nothing
+                    , cPriceChange = Nothing
+                    , cCurrentValue = Nothing
+                    , cGainLoss = Nothing
                     }
             Just cData ->
                 CurrencyData
@@ -191,18 +216,21 @@ buildCurrencyCache cacheTVar trades = do
                             / (cTotalQuantity cData + tBuyQuantity trade)
                     , cTotalQuantity =
                         cTotalQuantity cData + tBuyQuantity trade
+                    , cTotalCost =
+                        cCostBasis cData * cTotalQuantity cData + tSellQuantity trade
+                    , cPrice = Nothing
+                    , cPriceChange = Nothing
+                    , cCurrentValue = Nothing
+                    , cGainLoss = Nothing
                     }
 
 -- | Query Binance for a Currency's Price & Update the PriceCache.
-updatePriceCache :: TVar PriceCache -> Currency -> IO ()
-updatePriceCache cacheTVar currency = do
+updatePrice :: TVar PriceUpdateQueue -> Currency -> IO ()
+updatePrice updateQueue currency = do
     maybePrice <- getBinancePrice currency
     case maybePrice of
         Just p ->
-            atomically $ do
-                cache <- readTVar cacheTVar
-                let newCache = Map.insert currency p cache
-                writeTVar cacheTVar newCache
+            atomically $ modifyTVar updateQueue ((:) (currency, p))
         Nothing ->
             return ()
 
@@ -223,6 +251,11 @@ instance Show Quantity where
 -- | Render a `Quantity` with a Fixed Number of Decimal Places
 showQuantity :: Int -> Quantity -> String
 showQuantity decimalPlaces (Quantity rat) =
+    showRational decimalPlaces rat
+
+-- | Render a `Rational` with a Fixed Number of Decimal Places
+showRational :: Int -> Rational -> String
+showRational decimalPlaces rat =
     sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
     where
         sign =
@@ -296,23 +329,46 @@ refreshPriceCache :: AppState -> IO ()
 refreshPriceCache s = do
     let (tradesTVar, _, priceTVar) = appCacheTVars s
     trades <- readTVarIO tradesTVar
-    mapM_ (forkIO . updatePriceCache priceTVar . tBuyCurrency) trades
+    mapM_ (forkIO . updatePrice priceTVar . tBuyCurrency) trades
 
 
 -- | Update the Application's State Using the `appCacheTVars`.
 updateFromCaches :: AppState -> IO AppState
 updateFromCaches s = atomically $ do
     let (tradesTVar, currencyTVar, priceTVar) = appCacheTVars s
-    (trades, currency, price) <-
+    (trades, currencyCache, priceQueue) <-
         (,,)
             <$> readTVar tradesTVar
             <*> readTVar currencyTVar
             <*> readTVar priceTVar
+    let priceUpdates = nubBy (\(x,_) (y,_) -> x == y) priceQueue
+        newCache = foldr updateCachePrice currencyCache priceUpdates
+    writeTVar currencyTVar newCache
+    writeTVar priceTVar []
     return s
         { appTrades = trades
-        , appCurrencyCache = currency
-        , appPriceCache = price
+        , appCurrencyCache = newCache
         }
+    where
+        -- Update the Price & Calculations for a Currency
+        updateCachePrice :: (Currency, Quantity) -> CurrencyCache -> CurrencyCache
+        updateCachePrice (currency, price) =
+            let
+                currentValue cData = cTotalQuantity cData * price
+            in
+                Map.adjust
+                    (\cData -> cData
+                        { cPrice = Just price
+                        , cPriceChange = Just $ percentChange (cCostBasis cData) price
+                        , cCurrentValue = Just $ currentValue cData
+                        , cGainLoss = Just $ currentValue cData - cTotalCost cData
+                        }
+
+                    )
+                    currency
+        percentChange :: Quantity -> Quantity -> Rational
+        percentChange (Quantity original) (Quantity new) =
+            (new - original) / original * 100
 
 
 -- | Query Binance for a Currency's Last Sale Price in Ethereum-per-coin.
@@ -353,7 +409,7 @@ view s =
             $ hBox . map (vBox . map (vLimit 1)) $ transpose
                 $ tableHeader
                 : replicate (length tableHeader) B.hBorder
-                : reverse (Map.foldlWithKey (tableRow $ appPriceCache s) [] (appCurrencyCache s))
+                : reverse (Map.foldlWithKey tableRow [] (appCurrencyCache s))
         , statusBar s
         ]
     ]
@@ -366,8 +422,8 @@ statusBar s =
         $ padRight (Pad 1)
         $ str
         $ maybe "Loading GDAX Stream..." (("ETH-USD: $" ++) . showQuantity 2)
-        $ Map.lookup eth
-        $ appPriceCache s
+        $ cPrice <=< Map.lookup eth
+        $ appCurrencyCache s
 
 
 -- | Render the Header for the Ethereum Gains Table
@@ -385,31 +441,25 @@ tableHeader =
 
 
 -- | Render a Currency's Row in the Ethereum Gains Table
--- TODO: Move Calculations out of here into a cache so we can easily do totals as well
-tableRow :: PriceCache -> [[Widget AppWidget]] -> Currency -> CurrencyData -> [[Widget AppWidget]]
-tableRow priceCache ws currency cData =
-    let
-        maybePrice = Map.lookup currency priceCache
-        maybePriceChange = percentChange (cCostBasis cData) <$> maybePrice
-        totalCost = cTotalQuantity cData * cCostBasis cData
-        maybeCurrentValue = (* cTotalQuantity cData) <$> maybePrice
-    in
+tableRow :: [[Widget AppWidget]] -> Currency -> CurrencyData -> [[Widget AppWidget]]
+tableRow ws currency CurrencyData { cTotalQuantity, cCostBasis, cPrice, cPriceChange, cTotalCost, cCurrentValue, cGainLoss } =
+        emptyIfEth
         [ centeredString $ show currency
-        , alignRight . show $ cTotalQuantity cData
-        , alignRight . show $ cCostBasis cData
-        , alignRight $ maybe "Loading..." show maybePrice
-        , alignRight $ maybe "--" (showQuantity 2) maybePriceChange
-        , alignRight $ show totalCost
-        , alignRight $ maybeToText maybeCurrentValue
-        , alignRight $ maybeToText
-            $ (\current -> current - totalCost) <$> maybeCurrentValue
+        , alignRight $ show cTotalQuantity
+        , alignRight $ show cCostBasis
+        , alignRight $ maybe "Loading..." show cPrice
+        , alignRight $ maybe "--" (showRational 2) cPriceChange
+        , alignRight $ show cTotalCost
+        , alignRight $ maybeToText cCurrentValue
+        , alignRight $ maybeToText cGainLoss
         ]
         : ws
     where
+        -- Don't render a row for ETH
+        emptyIfEth row =
+            if currency == eth then [] else row
         maybeToText =
             maybe "--" show
-        percentChange original new =
-            (new - original) / original * 100
 
 -- | Center a String
 centeredString :: String -> Widget n
