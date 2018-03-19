@@ -4,8 +4,8 @@ module GDAX where
 
 import Control.Monad (forever)
 import Data.Aeson
-    ( ToJSON(..), FromJSON(..), (.=), (.:), encode, decode, eitherDecode
-    , object,  withObject, Value(Object)
+    ( ToJSON(..), FromJSON(..), (.=), (.:), encode, eitherDecode, object
+    , withObject, Value(Object)
     )
 import Network.WebSockets (receiveData, sendTextData)
 import Wuss (runSecureClient)
@@ -19,7 +19,6 @@ import qualified Data.Text as T
 connect :: (String -> IO ()) -> IO ()
 connect action = run $ \connection -> do
     sendTextData connection $ encode Subscribe
-    (_ :: Maybe GDAXResponse) <- decode <$> receiveData connection
     forever $ do
         msg <- eitherDecode <$> receiveData connection
         case msg of
