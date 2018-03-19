@@ -76,6 +76,128 @@ data AppState
         }
 
 
+-- | A Trade of one `Currency` for `Another`
+data Trade
+    = Trade
+        { tBuyQuantity :: Quantity
+        , tBuyCurrency :: Currency
+        , tSellQuantity :: Quantity
+        , tSellCurrency :: Currency
+        }
+
+-- | Parse a Trade from a CoinTracking.Info `Trade List` Export
+--
+-- We have to use index-based parsing here because the export contains
+-- 2 `"Cur."` columns
+instance Csv.FromRecord Trade where
+    parseRecord v =
+        if length v == 10 then do
+            trade <- v .! 1
+            if trade == ("Trade" :: String) then
+                Trade
+                    <$> (readDecimalQuantity <$> v .! 2)
+                    <*> (Currency <$> v .! 3)
+                    <*> (readDecimalQuantity <$> v .! 4)
+                    <*> (Currency <$> v .! 5)
+            else
+                mzero
+        else
+            mzero
+
+
+-- | A List of Price Updates to Apply, with Newer Updates at the Beginning.
+type PriceUpdateQueue
+    = [(Currency, Quantity)]
+
+-- | A Mapping From Currencies to Their Calculated Data
+type CurrencyCache
+    = Map.Map Currency CurrencyData
+
+-- | Data We Have Calculated from the `Trade`s & Prices.
+data CurrencyData
+    = CurrencyData
+        { cCostBasis :: Quantity
+        , cTotalQuantity :: Quantity
+        , cTotalCost :: Quantity
+        , cPrice :: Maybe Quantity
+        , cPriceChange :: Maybe Rational
+        , cCurrentValue :: Maybe Quantity
+        , cGainLoss :: Maybe Quantity
+        }
+
+
+
+-- FIELDS
+
+-- | An Amount of a Coin that has been Bought/Sold, or a Per-Unit Price.
+-- TODO: Make Integer Instead of Rational, Need to Figure Out Atomic Units
+newtype Quantity
+    = Quantity
+        { fromQuantity :: Rational
+        } deriving (Num, Fractional)
+
+-- | Show 8 Decimal Places by Default.
+instance Show Quantity where
+    show = showQuantity 8
+
+-- | Read a `Quantity` from a `Scientific`-formatted String
+readDecimalQuantity :: String -> Quantity
+readDecimalQuantity =
+    Quantity . toRational . (read :: String -> Scientific)
+
+-- | Render a `Quantity` with a Fixed Number of Decimal Places
+showQuantity :: Int -> Quantity -> String
+showQuantity decimalPlaces (Quantity rat) =
+    showRational decimalPlaces rat
+
+-- | Render a `Rational` with a Fixed Number of Decimal Places
+showRational :: Int -> Rational -> String
+showRational decimalPlaces rat =
+    sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
+    where
+        sign =
+            if num < 0 then
+                "-"
+            else
+                ""
+        fractionalString =
+            take decimalPlaces (buildFractionalString fractionalPart)
+        zeroPadding =
+            replicate (decimalPlaces - length fractionalString) '0'
+        (wholePart, fractionalPart) =
+            abs num `quotRem` den
+        num =
+            numerator rat
+        den =
+            denominator rat
+        buildFractionalString 0 =
+            ""
+        buildFractionalString fraction =
+            let
+                (digit, remainingFraction) =
+                    (10 * fraction) `quotRem` den
+            in
+                shows digit (buildFractionalString remainingFraction)
+
+
+-- | Used as an Identifier for CryptoCurrencies.
+newtype Currency
+    = Currency { toSymbol :: String }
+    deriving (Ord, Eq)
+
+-- | Currencies are Represented by their Ticker Symbol
+instance Show Currency where
+    show = toSymbol
+
+-- | The `Currency` Representing Ethereum.
+eth :: Currency
+eth =
+    Currency "ETH"
+
+
+
+-- INITIALIZATION
+
 -- | Create the app's `TVar`s, then asynchronously load the trades & build
 -- the Currency & Price caches.
 initialState :: IO AppState
@@ -116,35 +238,6 @@ initialState = do
             ]
 
 
--- | A Trade of one `Currency` for `Another`
-data Trade
-    = Trade
-        { tBuyQuantity :: Quantity
-        , tBuyCurrency :: Currency
-        , tSellQuantity :: Quantity
-        , tSellCurrency :: Currency
-        }
-
--- | Parse a Trade from a CoinTracking.Info `Trade List` Export
---
--- We have to use index-based parsing here because the export contains
--- 2 `"Cur."` columns
-instance Csv.FromRecord Trade where
-    parseRecord v =
-        if length v == 10 then do
-            trade <- v .! 1
-            if trade == ("Trade" :: String) then
-                Trade
-                    <$> (readDecimalQuantity <$> v .! 2)
-                    <*> (Currency <$> v .! 3)
-                    <*> (readDecimalQuantity <$> v .! 4)
-                    <*> (Currency <$> v .! 5)
-            else
-                mzero
-        else
-            mzero
-
-
 -- | Parse a Coin Tracking `Trade List` CSV Export
 loadTrades :: String -> IO [Trade]
 loadTrades fileName = do
@@ -154,33 +247,6 @@ loadTrades fileName = do
             putStrLn err >> return []
         Right v ->
             return $ Vec.toList v
-
-
--- | Read a `Quantity` from a `Scientific`-formatted String
-readDecimalQuantity :: String -> Quantity
-readDecimalQuantity =
-    Quantity . toRational . (read :: String -> Scientific)
-
-
--- | A Mapping From Currencies to Their Calculated Data
-type CurrencyCache
-    = Map.Map Currency CurrencyData
-
--- | Data We Have Calculated from the `Trade`s & Prices.
-data CurrencyData
-    = CurrencyData
-        { cCostBasis :: Quantity
-        , cTotalQuantity :: Quantity
-        , cTotalCost :: Quantity
-        , cPrice :: Maybe Quantity
-        , cPriceChange :: Maybe Rational
-        , cCurrentValue :: Maybe Quantity
-        , cGainLoss :: Maybe Quantity
-        }
-
--- | A List of Price Updates to Apply, with Newer Updates at the Beginning.
-type PriceUpdateQueue
-    = [(Currency, Quantity)]
 
 
 -- | Build the `CurrencyCache` using a list of Trades.
@@ -224,6 +290,7 @@ buildCurrencyCache cacheTVar trades = do
                     , cGainLoss = Nothing
                     }
 
+
 -- | Query Binance for a Currency's Price & Update the PriceCache.
 updatePrice :: TVar PriceUpdateQueue -> Currency -> IO ()
 updatePrice updateQueue currency = do
@@ -234,67 +301,6 @@ updatePrice updateQueue currency = do
         Nothing ->
             return ()
 
-
--- Fields
-
--- | An Amount of a Coin that has been Bought/Sold, or a Per-Unit Price.
--- TODO: Make Integer Instead of Rational, Need to Figure Out Atomic Units
-newtype Quantity
-    = Quantity
-        { fromQuantity :: Rational
-        } deriving (Num, Fractional)
-
--- | Show 8 Decimal Places by Default.
-instance Show Quantity where
-    show = showQuantity 8
-
--- | Render a `Quantity` with a Fixed Number of Decimal Places
-showQuantity :: Int -> Quantity -> String
-showQuantity decimalPlaces (Quantity rat) =
-    showRational decimalPlaces rat
-
--- | Render a `Rational` with a Fixed Number of Decimal Places
-showRational :: Int -> Rational -> String
-showRational decimalPlaces rat =
-    sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
-    where
-        sign =
-            if num < 0 then
-                "-"
-            else
-                ""
-        fractionalString =
-            take decimalPlaces (buildFractionalString fractionalPart)
-        zeroPadding =
-            replicate (decimalPlaces - length fractionalString) '0'
-        (wholePart, fractionalPart) =
-            abs num `quotRem` den
-        num =
-            numerator rat
-        den =
-            denominator rat
-        buildFractionalString 0 =
-            ""
-        buildFractionalString fraction =
-            let
-                (digit, remainingFraction) =
-                    (10 * fraction) `quotRem` den
-            in
-                shows digit (buildFractionalString remainingFraction)
-
--- | Used as an Identifier for CryptoCurrencies.
-newtype Currency
-    = Currency { toSymbol :: String }
-    deriving (Ord, Eq)
-
--- | Currencies are Represented by their Ticker Symbol
-instance Show Currency where
-    show = toSymbol
-
--- | The `Currency` Representing Ethereum.
-eth :: Currency
-eth =
-    Currency "ETH"
 
 
 -- UPDATE
