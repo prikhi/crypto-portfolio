@@ -17,7 +17,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson.Lens (key, _String)
 import Data.Csv ((.!))
 import Data.List (transpose, nubBy)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, fromMaybe)
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
 import GHC.Conc (TVar, STM, newTVar, readTVar, readTVarIO, writeTVar, atomically)
@@ -71,6 +71,7 @@ data AppState
     = AppState
         { appTrades :: [Trade]
         , appCurrencyCache :: CurrencyCache
+        , appAggregateData :: AggregateData
         , appCacheTVars :: (TVar [Trade], TVar CurrencyCache, TVar PriceUpdateQueue)
         , appGDAXThread :: ThreadId
         }
@@ -123,6 +124,13 @@ data CurrencyData
         , cPriceChange :: Maybe Rational
         , cCurrentValue :: Maybe Quantity
         , cGainLoss :: Maybe Quantity
+        }
+
+data AggregateData
+    = AggregateData
+        { aTotalCost :: Quantity
+        , aTotalValue :: Quantity
+        , aGainLoss :: Quantity
         }
 
 
@@ -216,6 +224,7 @@ initialState = do
     return AppState
         { appTrades = []
         , appCurrencyCache = Map.empty
+        , appAggregateData = AggregateData 0 0 0
         , appCacheTVars = (tradesTVar, currencyTVar, priceTVar)
         , appGDAXThread = gdaxThread
         }
@@ -354,6 +363,7 @@ updateFromCaches s = atomically $ do
     return s
         { appTrades = trades
         , appCurrencyCache = newCache
+        , appAggregateData = calculateAggregates newCache
         }
     where
         -- Update the Price & Calculations for a Currency
@@ -372,6 +382,20 @@ updateFromCaches s = atomically $ do
 
                     )
                     currency
+        calculateAggregates :: CurrencyCache -> AggregateData
+        calculateAggregates cache =
+            let
+                (costs, value) =
+                    Map.foldl collectCostAndValue (0, 0) cache
+            in
+                AggregateData
+                    { aTotalCost = costs
+                    , aTotalValue = value
+                    , aGainLoss = value - costs
+                    }
+            where
+                collectCostAndValue (cost, value) cData =
+                    (cost + cTotalCost cData, value + fromMaybe 0 (cCurrentValue cData))
         percentChange :: Quantity -> Quantity -> Rational
         percentChange (Quantity original) (Quantity new) =
             (new - original) / original * 100
@@ -416,6 +440,7 @@ view s =
                 $ tableHeader
                 : replicate (length tableHeader) B.hBorder
                 : reverse (Map.foldlWithKey tableRow [] (appCurrencyCache s))
+                ++ tableFooter s
         , statusBar s
         ]
     ]
@@ -466,6 +491,34 @@ tableRow ws currency CurrencyData { cTotalQuantity, cCostBasis, cPrice, cPriceCh
             if currency == eth then [] else row
         maybeToText =
             maybe "--" show
+
+-- | Render the Totals Row of the Table
+tableFooter :: AppState -> [[Widget AppWidget]]
+tableFooter AppState { appCurrencyCache, appAggregateData } =
+    [ replicate (length tableHeader) B.hBorder
+    , [ str ""
+      , str ""
+      , str ""
+      , str ""
+      , alignRight "Totals:"
+      , alignRight $ show $ aTotalCost appAggregateData
+      , alignRight $ show $ aTotalValue appAggregateData
+      , alignRight $ show $ aGainLoss appAggregateData
+      ]
+    , [ str ""
+      , str ""
+      , str ""
+      , str ""
+      , alignRight "USD:"
+      , inUSD $ aTotalCost appAggregateData
+      , inUSD $ aTotalValue appAggregateData
+      , inUSD $ aGainLoss appAggregateData
+      ]
+    ]
+    where inUSD d =
+            alignRight
+                . maybe "Loading..." (showQuantity 2 . (* d))
+                $ cPrice =<< Map.lookup eth appCurrencyCache
 
 -- | Center a String
 centeredString :: String -> Widget n
