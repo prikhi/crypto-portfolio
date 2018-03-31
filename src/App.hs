@@ -84,7 +84,9 @@ newtype ViewData
 initialState :: IO AppState
 initialState = do
     priceTVar <- newTVarIO []
-    transactions <- readTradeTableExport "trade_table.csv"
+    transactions <-
+            sortBy (flip compare `on` transactionDate)
+                <$> readTradeTableExport "trade_table.csv"
     gdaxThread <- forkIO . GDAX.connect $ \priceString ->
         atomically
             $ modifyTVar priceTVar
@@ -96,7 +98,7 @@ initialState = do
                 $ modifyTVar priceTVar
                 $ (:) (c, readDecimalQuantity priceString)
     return AppState
-        { appTransactions = []
+        { appTransactions = transactions
         , appCacheTVars = priceTVar
         , appPriceThreads = gdaxThread : binanceThreads
         , appCurrentView = EthereumGains
