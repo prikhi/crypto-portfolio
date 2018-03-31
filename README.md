@@ -17,7 +17,6 @@ It currently:
 
 Some short term things it could do:
 
-* Also calculate dollar amount using GDAX prices
 * Use sales in cost basis(FIFO)
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
 * Sorting tables

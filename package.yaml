@@ -41,7 +41,7 @@ library:
   source-dirs: src
 
 executables:
-  crypto-portfolio-exe:
+  crypto-portfolio:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
