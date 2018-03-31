@@ -12,6 +12,11 @@ import qualified Data.Text as T
 
 -- TODO: Save all this in a Persistent database
 
+-- | Represents the Unique Identifiers of Widgets Used in the Application.
+data AppWidget
+    = TradeListViewport
+    deriving (Eq, Ord, Show)
+
 
 -- FIELDS
 

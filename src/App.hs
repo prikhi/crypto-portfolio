@@ -5,15 +5,16 @@
 module App where
 
 
-import Brick
+import Brick hiding (on)
 import Brick.BChan (BChan, newBChan, writeBChan)
 import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
 import Control.Concurrent.STM (modifyTVar)
 import Control.Monad (forever, forM)
 import Control.Monad.IO.Class (liftIO)
-import Data.List (nub, nubBy)
+import Data.Function (on)
+import Data.List (nub, nubBy, sortBy)
 import Data.Maybe (listToMaybe, mapMaybe)
-import GHC.Conc (TVar, newTVar, readTVar, writeTVar, atomically)
+import GHC.Conc (TVar, newTVarIO, readTVar, writeTVar, atomically)
 
 import qualified Graphics.Vty as V
 
@@ -22,6 +23,7 @@ import CoinTracking
 import GDAX
 import Types
 import qualified EthereumGains
+import qualified TradeList
 
 
 -- General Brick App Configuration & Initialization
@@ -69,6 +71,8 @@ type PriceUpdateQueue
 
 data AppView
     = EthereumGains
+    | TradeList
+    deriving (Bounded, Enum, Eq)
 
 newtype ViewData
     = ViewData
@@ -133,8 +137,20 @@ update s = \case
         case ev of
             V.EvKey (V.KChar 'q') [] ->
                 liftIO (mapM killThread $ appPriceThreads s) >> halt s
-            _ ->
+            V.EvKey (V.KChar 'n') [] ->
                 continue s
+                    { appCurrentView = nextBoundedEnum $ appCurrentView s
+                    }
+            V.EvKey (V.KChar 'p') [] ->
+                continue s
+                    { appCurrentView = previousBoundedEnum $ appCurrentView s
+                    }
+            _ ->
+                case appCurrentView s of
+                    TradeList ->
+                        TradeList.update ev >> continue s
+                    EthereumGains ->
+                        continue s
     AppEvent appEv ->
         case appEv of
             Tick ->
@@ -175,11 +191,6 @@ updateFromCaches s = atomically $ do
 
 -- RENDER
 
--- | Represents the Unique Identifiers of Widgets Used in the Application.
-type AppWidget
-    = ()
-
-
 -- | Render the Ethereum Gains Table
 --
 -- The table is built by stacking cells into columns, and then placing the
@@ -192,6 +203,8 @@ view s =
     case appCurrentView s of
         EthereumGains ->
             EthereumGains.view . vdEthereumGains $ appViewData s
+        TradeList ->
+            TradeList.view $ appTransactions s
 
 
 

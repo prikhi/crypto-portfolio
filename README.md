@@ -11,6 +11,7 @@ It currently:
 * Streams the current prices of each of my coins from Binance
 * Shows the amount, cost, value, % change & gains for each coin.
 * Shows the total cost, value, & gains for portfolio, in ETH & USD.
+* Shows a list of all Trades, Income, Expenses, & Transfers.
 
 ![The User Interface of the Crypto Portfolio Program, Showing a Table of Costs, Values, and Gains for Several Cryptocurrencies](http://bugs.sleepanarchy.com/projects/crypto-portfolio/repository/revisions/master/entry/screenshot.png "KSP Automation Screenshot")
 
@@ -27,7 +28,6 @@ And some bigger goals:
 
 * Track things purchased w/ USD as well(e.g. portfolio & USD gains views)
 * Have it's own trade management system(so I don't need to use cointracking)
-* Track Income / Expenses / Transfers as well as Trades
 * Allow Tagging/Grouping Trades
 * Track Exchanges
 * Import trades directly from GDAX & Binance API or exports
@@ -51,7 +51,7 @@ Now run the app:
 
     stack exec crypto-portfolio
 
-Press `q` to quit.
+Press `n`/`p` to cycle through the views & `q` to quit.
 
 
 ## License
