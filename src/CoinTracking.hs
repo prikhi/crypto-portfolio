@@ -43,7 +43,14 @@ readTradeTableExport fileName = do
                         t1 : mergeTransfers (t2 : rest)
         isTransfer :: IncomeData -> ExpenseData -> Bool
         isTransfer incomeData expenseData =
-            incomeQuantity incomeData == expenseQuantity expenseData
+            (incomeQuantity incomeData == expenseQuantity expenseData
+                || incomeQuantity incomeData ==
+                        (expenseQuantity expenseData
+                            - fromMaybe 0 (expenseFeeQuantity expenseData))
+                || expenseQuantity expenseData ==
+                        (incomeQuantity incomeData
+                            + fromMaybe 0 (incomeFeeQuantity incomeData))
+            )
                 && incomeCurrency incomeData == expenseCurrency expenseData
                 && sameCurrencyOrNothing (incomeFeeCurrency incomeData) (expenseFeeCurrency expenseData)
         sameCurrencyOrNothing :: Maybe Currency -> Maybe Currency -> Bool
