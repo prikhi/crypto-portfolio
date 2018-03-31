@@ -57,7 +57,7 @@ makeTickChannel = do
 data AppState
     = AppState
         { appTransactions :: [Transaction]
-        , appCacheTVars :: (TVar [Transaction], TVar PriceUpdateQueue)
+        , appCacheTVars :: TVar PriceUpdateQueue
         , appPriceThreads :: [ThreadId]
         , appCurrentView :: AppView
         , appViewData :: ViewData
@@ -76,16 +76,15 @@ newtype ViewData
         }
 
 
+
 -- INITIALIZATION
 
 -- | Create the app's `TVar`s, then asynchronously load the trades & build
 -- the Currency & Price caches.
 initialState :: IO AppState
 initialState = do
-    (transactionsTVar, priceTVar) <- atomically
-        $ (,) <$> newTVar [] <*> newTVar []
+    priceTVar <- newTVarIO []
     transactions <- readTradeTableExport "trade_table.csv"
-    atomically $ writeTVar transactionsTVar transactions
     gdaxThread <- forkIO . GDAX.connect $ \priceString ->
         atomically
             $ modifyTVar priceTVar
@@ -98,7 +97,7 @@ initialState = do
                 $ (:) (c, readDecimalQuantity priceString)
     return AppState
         { appTransactions = []
-        , appCacheTVars = (transactionsTVar, priceTVar)
+        , appCacheTVars = priceTVar
         , appPriceThreads = gdaxThread : binanceThreads
         , appCurrentView = EthereumGains
         , appViewData = initialViewData transactions
@@ -117,12 +116,12 @@ initialState = do
                         Nothing
 
 
+
 -- UPDATE
 
 -- | The Application-Specific Events
 data AppEvent
     = Tick
-
 
 -- | Update the State on Key Events & `Tick`s.
 -- TODO: c-n/p switch view, on switch to eth gains, update currency cache
@@ -141,12 +140,23 @@ update s = \case
 
     _ ->
         continue s
+    where
+        nextBoundedEnum e =
+            if e == maxBound then
+                minBound
+            else
+                succ e
+        previousBoundedEnum e =
+            if e == minBound then
+                maxBound
+            else
+                pred e
 
 
 -- | Update the Application's State Using the `appCacheTVars`.
 updateFromCaches :: AppState -> IO AppState
 updateFromCaches s = atomically $ do
-    let priceTVar = snd $ appCacheTVars s
+    let priceTVar = appCacheTVars s
     priceQueue <- readTVar priceTVar
     writeTVar priceTVar []
     let priceUpdates = nubBy (\(x,_) (y,_) -> x == y) priceQueue
