@@ -43,13 +43,13 @@ Build it with `stack`:
 
     stack build
 
-Go to the `Trades List` report on https://CoinTracking.info, filter it by ETH
-sales, and save the CSV export. Move it to this directory and call it
-`eth_trades.csv`.
+Go to the `Enter Coins` page on https://CoinTracking.info, hit the `Export`
+button and choose `CSV`. Move it to this directory and call it
+`trade_table.csv`.
 
 Now run the app:
 
-    stack exec crypto-portfolio-exe
+    stack exec crypto-portfolio
 
 Press `q` to quit.
 
