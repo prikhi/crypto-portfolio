@@ -106,12 +106,12 @@ initialState = do
     transactions <- readTradeTableExport "trade_table.csv"
     void . forkIO . atomically $ do
         writeTVar transactionsTVar transactions
-        buildCurrencyCache currencyTVar transactions
+        buildCurrencyCache currencyTVar $ getEthereumTransactions transactions
     gdaxThread <- forkIO . GDAX.connect $ \priceString ->
         atomically
             $ modifyTVar priceTVar
             $ (:) (eth, readDecimalQuantity priceString)
-    let currencies = nub . map tradeBuyCurrency $ getTrades transactions
+    let currencies = nub . map tradeBuyCurrency $ getEthereumTrades transactions
     binanceThreads <- forM currencies $ \c@(Currency symbol) ->
         forkIO . Binance.connect symbol $ \priceString ->
             atomically
@@ -142,16 +142,25 @@ initialState = do
                 }
               )
             ]
-        getTrades :: [Transaction] -> [TradeData]
-        getTrades =
-            mapMaybe $ flip (.) transactionData $ \case
+        getEthereumTransactions :: [Transaction] -> [Transaction]
+        getEthereumTransactions =
+            mapMaybe $ \transaction -> case transactionData transaction of
                 Trade t ->
-                    Just t
+                    if (tradeSellCurrency t == eth || tradeBuyCurrency t == eth)
+                            && tradeSellCurrency t /= Currency "USD" then
+                        Just transaction
+                    else
+                        Nothing
                 _ ->
                     Nothing
-
-
-
+        getEthereumTrades :: [Transaction] -> [TradeData]
+        getEthereumTrades ts =
+            flip mapMaybe (getEthereumTransactions ts)
+                $ \tr -> case transactionData tr of
+                    Trade t ->
+                        Just t
+                    _ ->
+                        Nothing
 
 
 -- | Build the `CurrencyCache` using a list of Transactions.
