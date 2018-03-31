@@ -1,4 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -8,31 +7,23 @@ module App where
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
 import Control.Concurrent.STM (modifyTVar)
-import Control.Monad ((<=<), void, forever, mzero, forM)
+import Control.Monad ((<=<), void, forever, forM)
 import Control.Monad.IO.Class (liftIO)
-import Data.Csv ((.!))
 import Data.List (transpose, nub, nubBy)
 import Data.Maybe (listToMaybe, fromMaybe, mapMaybe)
-import Data.Ratio (numerator, denominator)
-import Data.Time.Clock (UTCTime)
-import Data.Scientific (Scientific)
 import GHC.Conc (TVar, STM, newTVar, readTVar, writeTVar, atomically)
 
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
-import qualified Data.ByteString.Lazy as L
-import qualified Data.ByteString.Lazy.Char8 as LC
-import qualified Data.Csv as Csv
 import qualified Data.Map as Map
-import qualified Data.Text as T
-import qualified Data.Vector as Vec
 import qualified Graphics.Vty as V
 
 import Binance
+import CoinTracking
 import GDAX
+import Types
 
 
 -- General Brick App Configuration & Initialization
@@ -74,117 +65,6 @@ data AppState
         , appPriceThreads :: [ThreadId]
         }
 
-
-data Transaction
-    = Transaction
-        { transactionData :: TransactionData
-        , transactionDate :: UTCTime
-        , transactionGroup :: T.Text
-        , transactionComment :: T.Text
-        } deriving (Show)
-
--- | TODO: Change all `Exchange` fields to `Account`? To make more general for wallets
-data TransactionData
-    = Trade TradeData
-    | Income IncomeData
-    | Expense ExpenseData
-    | Transfer TransferData
-    deriving (Show)
-
-data TradeData
-    = TradeData
-        { tradeBuyQuantity :: Quantity
-        , tradeBuyCurrency :: Currency
-        , tradeSellQuantity :: Quantity
-        , tradeSellCurrency :: Currency
-        , tradeFeeQuantity :: Maybe Quantity
-        , tradeFeeCurrency :: Maybe Currency
-        , tradeExchange :: T.Text
-        } deriving (Show)
-
-data IncomeData
-    = IncomeData
-        { incomeQuantity :: Quantity
-        , incomeCurrency :: Currency
-        , incomeFeeQuantity :: Maybe Quantity
-        , incomeFeeCurrency :: Maybe Currency
-        , incomeExchange :: T.Text
-        } deriving (Show)
-
-data ExpenseData
-    = ExpenseData
-        { expenseQuantity :: Quantity
-        , expenseCurrency :: Currency
-        , expenseFeeQuantity :: Maybe Quantity
-        , expenseFeeCurrency :: Maybe Currency
-        , expenseExchange :: T.Text
-        } deriving (Show)
-
-data TransferData
-    = TransferData
-        { transferQuantity :: Quantity
-        , transferCurrency :: Currency
-        , transferFeeQuantity :: Maybe Quantity
-        , transferFeeCurrency :: Maybe Currency
-        , transferSourceExchange :: T.Text
-        , transferDestinationExchange :: T.Text
-        } deriving (Show)
-
-
--- | Parse a Transaction from a CoinTracking.Info `Trade Table` Export
---
--- We have to use index-based parsing here because the export contains
--- 3 `"Cur."` columns
-instance Csv.FromRecord Transaction where
-    parseRecord v =
-        if length v == 11 then do
-            transactionType <- v .! 0
-            date <- read <$> v .! 10
-            group <- v .! 8
-            comment <- v .! 9
-            transactionData <-
-                if transactionType == ("Trade" :: String) then
-                    Trade <$>
-                        ( TradeData
-                            <$> (readDecimalQuantity <$> v .! 1)
-                            <*> (Currency <$> v .! 2)
-                            <*> (readDecimalQuantity <$> v .! 3)
-                            <*> (Currency <$> v .! 4)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else if isIncome transactionType then
-                    Income <$>
-                        ( IncomeData
-                            <$> (readDecimalQuantity <$> v .! 1)
-                            <*> (Currency <$> v .! 2)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else if isExpense transactionType then
-                    Expense <$>
-                        ( ExpenseData
-                            <$> (readDecimalQuantity <$> v .! 3)
-                            <*> (Currency <$> v .! 4)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else
-                    mzero
-            return $ Transaction transactionData date group comment
-        else
-            mzero
-        where
-            isIncome =
-                (`elem` ["Income", "Mining", "Gift/Tip", "Deposit"])
-            isExpense =
-                (`elem` ["Withdrawal", "Spend", "Donation", "Gift", "Stolen/Hacked/Fraud", "Lost"])
-
-
-
 -- | A List of Price Updates to Apply, with Newer Updates at the Beginning.
 type PriceUpdateQueue
     = [(Currency, Quantity)]
@@ -215,75 +95,6 @@ data AggregateData
 
 
 
--- FIELDS
-
--- | An Amount of a Coin that has been Bought/Sold, or a Per-Unit Price.
--- TODO: Make Integer Instead of Rational, Need to Figure Out Atomic Units
-newtype Quantity
-    = Quantity
-        { fromQuantity :: Rational
-        } deriving (Eq, Num, Fractional)
-
--- | Show 8 Decimal Places by Default.
-instance Show Quantity where
-    show = showQuantity 8
-
--- | Read a `Quantity` from a `Scientific`-formatted String
-readDecimalQuantity :: String -> Quantity
-readDecimalQuantity =
-    Quantity . toRational . (read :: String -> Scientific)
-
--- | Render a `Quantity` with a Fixed Number of Decimal Places
-showQuantity :: Int -> Quantity -> String
-showQuantity decimalPlaces (Quantity rat) =
-    showRational decimalPlaces rat
-
--- | Render a `Rational` with a Fixed Number of Decimal Places
-showRational :: Int -> Rational -> String
-showRational decimalPlaces rat =
-    sign ++ shows wholePart ("." ++ fractionalString ++ zeroPadding)
-    where
-        sign =
-            if num < 0 then
-                "-"
-            else
-                ""
-        fractionalString =
-            take decimalPlaces (buildFractionalString fractionalPart)
-        zeroPadding =
-            replicate (decimalPlaces - length fractionalString) '0'
-        (wholePart, fractionalPart) =
-            abs num `quotRem` den
-        num =
-            numerator rat
-        den =
-            denominator rat
-        buildFractionalString 0 =
-            ""
-        buildFractionalString fraction =
-            let
-                (digit, remainingFraction) =
-                    (10 * fraction) `quotRem` den
-            in
-                shows digit (buildFractionalString remainingFraction)
-
-
--- | Used as an Identifier for CryptoCurrencies.
-newtype Currency
-    = Currency { toSymbol :: String }
-    deriving (Ord, Eq)
-
--- | Currencies are Represented by their Ticker Symbol
-instance Show Currency where
-    show = toSymbol
-
--- | The `Currency` Representing Ethereum.
-eth :: Currency
-eth =
-    Currency "ETH"
-
-
-
 -- INITIALIZATION
 
 -- | Create the app's `TVar`s, then asynchronously load the trades & build
@@ -292,7 +103,7 @@ initialState :: IO AppState
 initialState = do
     (transactionsTVar, currencyTVar, priceTVar) <- atomically
         $ (,,) <$> newTVar [] <*> newTVar initialCache <*> newTVar []
-    transactions <- loadTransactions "trade_table.csv"
+    transactions <- readTradeTableExport "trade_table.csv"
     void . forkIO . atomically $ do
         writeTVar transactionsTVar transactions
         buildCurrencyCache currencyTVar transactions
@@ -341,78 +152,6 @@ initialState = do
 
 
 
-
--- | Parse a Coin Tracking `Trade Table` CSV Export.
-loadTransactions :: String -> IO [Transaction]
-loadTransactions fileName = do
-    csvData <- L.drop 1 . LC.dropWhile (/= '\n') <$> L.readFile fileName
-    case Csv.decode Csv.NoHeader csvData of
-        Left err ->
-            putStrLn err >> return []
-        Right v ->
-            return . mergeTransfers $ Vec.toList v
-    where
-        mergeTransfers :: [Transaction] -> [Transaction]
-        mergeTransfers = \case
-            [] ->
-                []
-            [transaction] ->
-                [transaction]
-            t1 : t2 : rest ->
-                case (transactionData t1, transactionData t2) of
-                    (Income incomeData, Expense expenseData) ->
-                        if isTransfer incomeData expenseData && sameDate t1 t2 then
-                            makeTransfer t1 incomeData expenseData : mergeTransfers rest
-                        else
-                            t1 : mergeTransfers (t2 : rest)
-                    (Expense expenseData, Income incomeData) ->
-                        if isTransfer incomeData expenseData && sameDate t1 t2 then
-                            makeTransfer t1 incomeData expenseData : mergeTransfers rest
-                        else
-                            t1 : mergeTransfers (t2 : rest)
-                    _ ->
-                        t1 : mergeTransfers (t2 : rest)
-        isTransfer :: IncomeData -> ExpenseData -> Bool
-        isTransfer incomeData expenseData =
-            incomeQuantity incomeData == expenseQuantity expenseData
-                && incomeCurrency incomeData == expenseCurrency expenseData
-                && sameCurrencyOrNothing (incomeFeeCurrency incomeData) (expenseFeeCurrency expenseData)
-        sameCurrencyOrNothing :: Maybe Currency -> Maybe Currency -> Bool
-        sameCurrencyOrNothing mC1 mC2 =
-            fromMaybe True $ (==) <$> mC1 <*> mC2
-        sameDate :: Transaction -> Transaction -> Bool
-        sameDate t1 t2 =
-            transactionDate t1 == transactionDate t2
-        makeTransfer :: Transaction -> IncomeData -> ExpenseData -> Transaction
-        makeTransfer baseTransaction incomeData expenseData =
-            baseTransaction { transactionData =
-                Transfer TransferData
-                    { transferQuantity =
-                        incomeQuantity incomeData
-                    , transferCurrency =
-                        incomeCurrency incomeData
-                    , transferFeeQuantity =
-                        addFees (incomeFeeQuantity incomeData)
-                            (expenseFeeQuantity expenseData)
-                    , transferFeeCurrency =
-                        expenseFeeCurrency expenseData <|> incomeFeeCurrency incomeData
-                    , transferSourceExchange =
-                        expenseExchange expenseData
-                    , transferDestinationExchange =
-                        incomeExchange incomeData
-                    }
-            }
-        addFees :: Maybe Quantity -> Maybe Quantity -> Maybe Quantity
-        addFees mQ1 mQ2 =
-            case (mQ1, mQ2) of
-                (Just q1, Just q2) ->
-                    Just $ q1 + q2
-                (Just _, Nothing) ->
-                    mQ1
-                (Nothing, Just _) ->
-                    mQ2
-                (Nothing, Nothing) ->
-                    Nothing
 
 
 -- | Build the `CurrencyCache` using a list of Transactions.
