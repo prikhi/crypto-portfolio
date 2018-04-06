@@ -29,6 +29,7 @@ dependencies:
 - bytestring
 - cassava
 - containers
+- lens
 - text
 - scientific
 - stm

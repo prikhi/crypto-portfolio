@@ -21,9 +21,11 @@ import qualified Graphics.Vty as V
 import Binance
 import CoinTracking
 import GDAX
+import Table
 import Types
 import qualified EthereumGains
 import qualified TradeList
+import qualified Styles
 
 
 -- General Brick App Configuration & Initialization
@@ -36,7 +38,7 @@ config =
         , appChooseCursor = const listToMaybe
         , appHandleEvent = update
         , appStartEvent = liftIO . updateFromCaches
-        , appAttrMap = styles
+        , appAttrMap = const Styles.attributeMap
         }
 
 -- | Create a Brick Event Channel that produces a `Tick` event 60 times per
@@ -56,6 +58,8 @@ makeTickChannel = do
 
 -- | The state of the application, including TVars as caches & asynchronous
 -- update channels.
+-- TODO: Send PriceUpdates via BChan & AppEvent type instead of constant
+-- polling.
 data AppState
     = AppState
         { appTransactions :: [Transaction]
@@ -130,7 +134,7 @@ data AppEvent
     = Tick
 
 -- | Update the State on Key Events & `Tick`s.
--- TODO: c-n/p switch view, on switch to eth gains, update currency cache
+-- TODO: on switch to eth gains update currency cache instead of every tick
 update :: AppState -> BrickEvent AppWidget AppEvent -> EventM AppWidget (Next AppState)
 update s = \case
     VtyEvent ev ->
@@ -148,9 +152,9 @@ update s = \case
             _ ->
                 case appCurrentView s of
                     TradeList ->
-                        TradeList.update ev >> continue s
+                        updateTable TradeListTable ev >> continue s
                     EthereumGains ->
-                        continue s
+                        updateTable EthereumGainsTable ev >> continue s
     AppEvent appEv ->
         case appEv of
             Tick ->
@@ -191,13 +195,7 @@ updateFromCaches s = atomically $ do
 
 -- RENDER
 
--- | Render the Ethereum Gains Table
---
--- The table is built by stacking cells into columns, and then placing the
--- rows side-by-side. This is done to ensure every cell in a column expands
--- to the full width.
---
--- Cells are limited to a height of 1 line.
+-- | Render the Currently Selected View.
 view :: AppState -> [Widget AppWidget]
 view s =
     case appCurrentView s of
@@ -205,16 +203,3 @@ view s =
             EthereumGains.view . vdEthereumGains $ appViewData s
         TradeList ->
             TradeList.view $ appTransactions s
-
-
-
--- STYLE
-
--- | The Style Map for the Application.
---
--- Currently we only use the terminal's default values.
-styles :: AppState -> AttrMap
-styles _ =
-    attrMap V.defAttr
-        [
-        ]

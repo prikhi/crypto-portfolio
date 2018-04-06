@@ -32,9 +32,9 @@ And some bigger goals:
 * Track Exchanges
 * Import trades directly from GDAX & Binance API or exports
 * Have additional views(portfolio, add/edit trades, watch list, alerts, etc.)
-* Refactor table rendering into it's own module, maybe release as Brick Widget
+* Release Table module as Brick Widget package
 * Debug/info logging
-* Coin research views(subreddit, cmc data, wikipedia)
+* Coin research views(subreddit, cmc data, wikipedia, google trends)
 
 
 ## Usage
@@ -51,7 +51,17 @@ Now run the app:
 
     stack exec crypto-portfolio
 
-Press `n`/`p` to cycle through the views & `q` to quit.
+Press `n`/`p` to cycle through the views & `q` to quit. You can scroll the
+tables with the following keys:
+
+    j - scroll down 1 line
+    k - scroll up 1 line
+    Ctrl-d - scroll down 1/2 page
+    Ctrl-u - scroll up 1/2 page
+    Ctrl-f - scroll down a page
+    Ctrl-b - scroll up a page
+    g - go to first row
+    G - go to last row
 
 
 ## License

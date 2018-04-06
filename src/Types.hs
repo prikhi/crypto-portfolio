@@ -14,7 +14,8 @@ import qualified Data.Text as T
 
 -- | Represents the Unique Identifiers of Widgets Used in the Application.
 data AppWidget
-    = TradeListViewport
+    = EthereumGainsTable
+    | TradeListTable
     deriving (Eq, Ord, Show)
 
 

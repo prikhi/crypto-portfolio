@@ -1,17 +1,22 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
-module EthereumGains where
+module EthereumGains
+    ( State
+    , initial
+    , getTransactions
+    , updateCacheAndAggregate
+    , view
+    ) where
 
 import Brick
 import Control.Monad ((<=<))
-import Data.List (transpose)
 import Data.Maybe (mapMaybe, fromMaybe)
 
-import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Border as B
 import qualified Data.Map as Map
 
 import Types
+import Table
 
 data State
     = State
@@ -35,6 +40,7 @@ data CurrencyData
         , cGainLoss :: Maybe Quantity
         }
 
+-- | Aggregate Calculations Built from the `CurrencyCache`.
 data AggregateData
     = AggregateData
         { aTotalCost :: Quantity
@@ -43,6 +49,7 @@ data AggregateData
         , aTotalChange :: Rational
         }
 
+-- | Build the Cache & Aggregates using the given Transactions.
 initial :: [Transaction] -> State
 initial ts =
     let
@@ -180,17 +187,17 @@ updateCacheAndAggregate s priceUpdates =
             (new - original) / original * 100
 
 
-view :: State -> [Widget n]
+-- | Render the Ethereum Gains Table
+view :: State -> [Widget AppWidget]
 view s =
     [ vBox
         [ B.hBorderWithLabel (str " Ethereum Gains ")
         , B.border
-            $ padLeftRight 1
-            $ hBox . map (vBox . map (vLimit 1)) $ transpose
-                $ tableHeader
-                : replicate (length tableHeader) B.hBorder
-                : reverse (Map.foldlWithKey tableRow [] (currencyCache s))
-                ++ tableFooter s
+            . padLeftRight 1
+            . table (tableConfig s)
+            . reverse
+            . Map.foldlWithKey (\acc k v -> if k == eth then acc else (k, v) : acc) []
+            $ currencyCache s
         , statusBar s
         ]
     ]
@@ -207,59 +214,83 @@ statusBar s =
         $ currencyCache s
 
 
--- | Render the Header for the Ethereum Gains Table
-tableHeader :: [Widget n]
-tableHeader =
-    [ centeredString "Currency"
-    , alignRight "Total Quantity"
-    , alignRight "Cost Per Unit"
-    , alignRight "Current Price"
-    , alignRight "% Change"
-    , alignRight "Total Cost"
-    , alignRight "Current Value"
-    , alignRight "Gain / Loss"
+tableConfig :: State -> TableConfig (Currency, CurrencyData) AppWidget
+tableConfig s =
+    TableConfig
+        { columns = tableColumns
+        , showRowDividers = True
+        , footerRows = tableFooter s
+        , name = EthereumGainsTable
+        }
+
+tableColumns :: [Column (Currency, CurrencyData)]
+tableColumns =
+    [ column
+        { headerName = "Currency"
+        , headerAlign = Alignment VMiddle HCenter
+        , dataAlign = Alignment VMiddle HCenter
+        , columnWeight = 1
+        , dataSelector = show . fst
+        }
+    , column
+        { headerName = "Total Quantity"
+        , dataSelector = show . cTotalQuantity . snd
+        }
+    , column
+        { headerName = "Cost Per Unit"
+        , dataSelector = show . cCostBasis . snd
+        }
+    , column
+        { headerName = "Current Price"
+        , dataSelector = maybe "Loading..." show . cPrice . snd
+        }
+    , column
+        { headerName = "% Change"
+        , dataSelector = maybe "--" (showRational 2) . cPriceChange . snd
+        , columnWeight = 5
+        }
+    , column
+        { headerName = "Total Cost"
+        , dataSelector = show . cTotalCost . snd
+        }
+    , column
+        { headerName = "Curent Value"
+        , dataSelector = maybeText . cCurrentValue . snd
+        }
+    , column
+        { headerName = "Gain / Loss"
+        , dataSelector = maybeText . cGainLoss . snd
+        }
     ]
-
-
--- | Render a Currency's Row in the Ethereum Gains Table
-tableRow :: [[Widget n]] -> Currency -> CurrencyData -> [[Widget n]]
-tableRow ws currency CurrencyData { cTotalQuantity, cCostBasis, cPrice, cPriceChange, cTotalCost, cCurrentValue, cGainLoss } =
-        emptyIfEth
-        [ centeredString $ show currency
-        , alignRight $ show cTotalQuantity
-        , alignRight $ show cCostBasis
-        , alignRight $ maybe "Loading..." show cPrice
-        , alignRight $ maybe "--" (showRational 2) cPriceChange
-        , alignRight $ show cTotalCost
-        , alignRight $ maybeToText cCurrentValue
-        , alignRight $ maybeToText cGainLoss
-        ]
-        : ws
     where
-        -- Don't render a row for ETH
-        emptyIfEth row =
-            if currency == eth then [] else row
-        maybeToText =
+        maybeText =
             maybe "--" show
+        column =
+            Column
+                { headerName = ""
+                , headerAlign = Alignment VMiddle HRight
+                , dataAlign = Alignment VMiddle HRight
+                , columnWeight = 15
+                , dataSelector = const ""
+                }
 
 -- | Render the Totals Row of the Table
 tableFooter :: State -> [[Widget n]]
 tableFooter State { currencyCache, aggregateData } =
-    [ replicate (length tableHeader) B.hBorder
-    , [ str ""
-      , str ""
-      , str ""
+    [ [ str " "
+      , str " "
+      , str " "
       , alignRight "Totals:"
       , alignRight $ showRational 2 $ aTotalChange aggregateData
       , alignRight $ show $ aTotalCost aggregateData
       , alignRight $ show $ aTotalValue aggregateData
       , alignRight $ show $ aGainLoss aggregateData
       ]
-    , [ str ""
-      , str ""
-      , str ""
-      , str ""
-      , str ""
+    , [ str " "
+      , str " "
+      , str " "
+      , str " "
+      , str " "
       , inUSD $ aTotalCost aggregateData
       , inUSD $ aTotalValue aggregateData
       , inUSD $ aGainLoss aggregateData
@@ -270,10 +301,6 @@ tableFooter State { currencyCache, aggregateData } =
                 . maybe "Loading..." (("$" ++) . showQuantity 2 . (* d))
                 $ cPrice =<< Map.lookup eth currencyCache
 
-
--- | Center a String
-centeredString :: String -> Widget n
-centeredString = C.center . str
 
 -- | Align a String to the Right of it's Parent Widget.
 alignRight :: String -> Widget n
