@@ -20,6 +20,10 @@ description:         Please see the README on Github at <https://github.com/prik
 
 ghc-options:
 - -Wall
+- -Wcompat
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wredundant-constraints
 - -Werror
 
 dependencies:
