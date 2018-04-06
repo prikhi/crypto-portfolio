@@ -48,7 +48,7 @@ makeTickChannel = do
     channel <- newBChan 10
     threadId <- forkIO $ forever $ do
         writeBChan channel Tick
-        threadDelay $ ticksPerSecond 60
+        threadDelay $ ticksPerSecond 1
     return (channel, threadId)
     where ticksPerSecond tps = 1000000 `div` tps
 
