@@ -10,7 +10,8 @@ module App
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent (ThreadId, forkIO)
+import Control.Concurrent (ThreadId, forkIO, threadDelay)
+import Control.Exception (IOException, catch)
 import Control.Monad (forM)
 import Data.List (nub)
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -44,13 +45,18 @@ config =
 priceUpdateChannel :: [Transaction] -> IO (BChan AppEvent, [ThreadId])
 priceUpdateChannel transactions = do
     channel <- newBChan 20
-    gdaxThread <- forkIO . GDAX.connect $ \priceString ->
-        writeBChan channel . PriceUpdate eth $ readDecimalQuantity priceString
+    gdaxThread <- priceUpdateThread channel eth GDAX.connect
     binanceThreads <- forM currencies $ \c@(Currency symbol) ->
-        forkIO . Binance.connect symbol $ \priceString ->
-            writeBChan channel . PriceUpdate c $ readDecimalQuantity priceString
+        priceUpdateThread channel c (Binance.connect symbol)
     return (channel, gdaxThread : binanceThreads)
     where
+        priceUpdateThread :: BChan AppEvent -> Currency -> ((String -> IO ()) -> IO ()) -> IO ThreadId
+        priceUpdateThread channel currency getPrice =
+            forkIO $ retryForever $ getPrice $ \priceString ->
+                writeBChan channel . PriceUpdate currency $ readDecimalQuantity priceString
+        retryForever :: IO a -> IO a
+        retryForever action = catch action $ \(_ :: IOException) ->
+            threadDelay 500000 >> retryForever action
         currencies :: [Currency]
         currencies =
             nub . map tradeBuyCurrency $ getTrades transactions
