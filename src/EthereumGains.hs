@@ -4,7 +4,7 @@ module EthereumGains
     ( State
     , initial
     , getTransactions
-    , updateCacheAndAggregate
+    , updatePrice
     , view
     ) where
 
@@ -137,10 +137,11 @@ buildCurrencyCache =
                     , cGainLoss = Nothing
                     }
 
-updateCacheAndAggregate :: State -> [(Currency, Quantity)] -> State
-updateCacheAndAggregate s priceUpdates =
+-- | Update the CurrencyCache & AggregateData Given a New Price.
+updatePrice :: State -> Currency -> Quantity -> State
+updatePrice s currency price =
     let
-        newCache = foldr updateCachePrice (currencyCache s) priceUpdates
+        newCache = updateCachePrice $ currencyCache s
     in
         s
             { currencyCache = newCache
@@ -148,8 +149,8 @@ updateCacheAndAggregate s priceUpdates =
             }
     where
         -- Update the Price & Calculations for a Currency
-        updateCachePrice :: (Currency, Quantity) -> CurrencyCache -> CurrencyCache
-        updateCachePrice (currency, price) =
+        updateCachePrice :: CurrencyCache -> CurrencyCache
+        updateCachePrice =
             let
                 currentValue cData = cTotalQuantity cData * price
             in

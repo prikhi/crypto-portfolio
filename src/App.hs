@@ -1,25 +1,23 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module App where
+module App
+    ( config
+    , priceUpdateChannel
+    , initialState
+    ) where
 
 
-import Brick hiding (on)
+import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent (ThreadId, forkIO, threadDelay, killThread)
-import Control.Concurrent.STM (modifyTVar)
-import Control.Monad (forever, forM)
-import Control.Monad.IO.Class (liftIO)
-import Data.Function (on)
-import Data.List (nub, nubBy, sortBy)
+import Control.Concurrent (ThreadId, forkIO)
+import Control.Monad (forM)
+import Data.List (nub)
 import Data.Maybe (listToMaybe, mapMaybe)
-import GHC.Conc (TVar, newTVarIO, readTVar, writeTVar, atomically)
 
 import qualified Graphics.Vty as V
 
 import Binance
-import CoinTracking
 import GDAX
 import Table
 import Types
@@ -37,20 +35,33 @@ config =
         { appDraw = view
         , appChooseCursor = const listToMaybe
         , appHandleEvent = update
-        , appStartEvent = liftIO . updateFromCaches
+        , appStartEvent = return
         , appAttrMap = const Styles.attributeMap
         }
 
--- | Create a Brick Event Channel that produces a `Tick` event 60 times per
--- second.
-makeTickChannel :: IO (BChan AppEvent, ThreadId)
-makeTickChannel = do
-    channel <- newBChan 10
-    threadId <- forkIO $ forever $ do
-        writeBChan channel Tick
-        threadDelay $ ticksPerSecond 1
-    return (channel, threadId)
-    where ticksPerSecond tps = 1000000 `div` tps
+-- | Create a Brick Event Channel that receives PriceUpdate events from
+-- forked GDAX & Binance Ticker Update Threads.
+priceUpdateChannel :: [Transaction] -> IO (BChan AppEvent, [ThreadId])
+priceUpdateChannel transactions = do
+    channel <- newBChan 20
+    gdaxThread <- forkIO . GDAX.connect $ \priceString ->
+        writeBChan channel . PriceUpdate eth $ readDecimalQuantity priceString
+    binanceThreads <- forM currencies $ \c@(Currency symbol) ->
+        forkIO . Binance.connect symbol $ \priceString ->
+            writeBChan channel . PriceUpdate c $ readDecimalQuantity priceString
+    return (channel, gdaxThread : binanceThreads)
+    where
+        currencies :: [Currency]
+        currencies =
+            nub . map tradeBuyCurrency $ getTrades transactions
+        getTrades :: [Transaction] -> [TradeData]
+        getTrades ts =
+            flip mapMaybe (EthereumGains.getTransactions ts)
+                $ \tr -> case transactionData tr of
+                    Trade t ->
+                        Just t
+                    _ ->
+                        Nothing
 
 
 
@@ -58,20 +69,12 @@ makeTickChannel = do
 
 -- | The state of the application, including TVars as caches & asynchronous
 -- update channels.
--- TODO: Send PriceUpdates via BChan & AppEvent type instead of constant
--- polling.
 data AppState
     = AppState
         { appTransactions :: [Transaction]
-        , appCacheTVars :: TVar PriceUpdateQueue
-        , appPriceThreads :: [ThreadId]
         , appCurrentView :: AppView
         , appViewData :: ViewData
         }
-
--- | A List of Price Updates to Apply, with Newer Updates at the Beginning.
-type PriceUpdateQueue
-    = [(Currency, Quantity)]
 
 data AppView
     = EthereumGains
@@ -87,43 +90,18 @@ newtype ViewData
 
 -- INITIALIZATION
 
--- | Create the app's `TVar`s, then asynchronously load the trades & build
--- the Currency & Price caches.
-initialState :: IO AppState
-initialState = do
-    priceTVar <- newTVarIO []
-    transactions <-
-            sortBy (flip compare `on` transactionDate)
-                <$> readTradeTableExport "trade_table.csv"
-    gdaxThread <- forkIO . GDAX.connect $ \priceString ->
-        atomically
-            $ modifyTVar priceTVar
-            $ (:) (eth, readDecimalQuantity priceString)
-    let currencies = nub . map tradeBuyCurrency $ getTrades transactions
-    binanceThreads <- forM currencies $ \c@(Currency symbol) ->
-        forkIO . Binance.connect symbol $ \priceString ->
-            atomically
-                $ modifyTVar priceTVar
-                $ (:) (c, readDecimalQuantity priceString)
-    return AppState
+-- | Initialize each View's data & set the default View.
+initialState :: [Transaction] -> AppState
+initialState transactions =
+    AppState
         { appTransactions = transactions
-        , appCacheTVars = priceTVar
-        , appPriceThreads = gdaxThread : binanceThreads
         , appCurrentView = EthereumGains
-        , appViewData = initialViewData transactions
+        , appViewData = initialViewData
         }
     where
-        initialViewData :: [Transaction] -> ViewData
-        initialViewData ts =
-            ViewData $ EthereumGains.initial ts
-        getTrades :: [Transaction] -> [TradeData]
-        getTrades ts =
-            flip mapMaybe (EthereumGains.getTransactions ts)
-                $ \tr -> case transactionData tr of
-                    Trade t ->
-                        Just t
-                    _ ->
-                        Nothing
+        initialViewData :: ViewData
+        initialViewData =
+            ViewData $ EthereumGains.initial transactions
 
 
 
@@ -131,16 +109,15 @@ initialState = do
 
 -- | The Application-Specific Events
 data AppEvent
-    = Tick
+    = PriceUpdate Currency Quantity
 
 -- | Update the State on Key Events & `Tick`s.
--- TODO: on switch to eth gains update currency cache instead of every tick
 update :: AppState -> BrickEvent AppWidget AppEvent -> EventM AppWidget (Next AppState)
 update s = \case
     VtyEvent ev ->
         case ev of
             V.EvKey (V.KChar 'q') [] ->
-                liftIO (mapM killThread $ appPriceThreads s) >> halt s
+                halt s
             V.EvKey (V.KChar 'n') [] ->
                 continue s
                     { appCurrentView = nextBoundedEnum $ appCurrentView s
@@ -155,10 +132,11 @@ update s = \case
                         updateTable TradeListTable ev >> continue s
                     EthereumGains ->
                         updateTable EthereumGainsTable ev >> continue s
+
     AppEvent appEv ->
         case appEv of
-            Tick ->
-                liftIO (updateFromCaches s) >>= continue
+            PriceUpdate currency newPrice ->
+                continue $ handlePriceUpdate s currency newPrice
 
     _ ->
         continue s
@@ -174,22 +152,17 @@ update s = \case
             else
                 pred e
 
-
--- | Update the Application's State Using the `appCacheTVars`.
-updateFromCaches :: AppState -> IO AppState
-updateFromCaches s = atomically $ do
-    let priceTVar = appCacheTVars s
-    priceQueue <- readTVar priceTVar
-    writeTVar priceTVar []
-    let priceUpdates = nubBy (\(x,_) (y,_) -> x == y) priceQueue
-    return s
-        { appViewData = (appViewData s)
-            { vdEthereumGains =
-                EthereumGains.updateCacheAndAggregate
-                    (vdEthereumGains (appViewData s))
-                    priceUpdates
-            }
-        }
+-- | Update the Application's State With a New Price for a Currency.
+handlePriceUpdate :: AppState -> Currency -> Quantity -> AppState
+handlePriceUpdate s currency quantity =
+    s { appViewData = updatedViewData }
+    where
+        updatedViewData =
+            (appViewData s)
+                { vdEthereumGains =
+                    EthereumGains.updatePrice
+                        (vdEthereumGains (appViewData s)) currency quantity
+                }
 
 
 

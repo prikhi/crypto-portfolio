@@ -2,6 +2,8 @@
 module CoinTracking where
 
 import Control.Applicative ((<|>))
+import Data.Function (on)
+import Data.List (sortBy)
 import Data.Maybe (fromMaybe)
 
 import qualified Data.ByteString.Lazy as L
@@ -19,8 +21,11 @@ readTradeTableExport fileName = do
         Left err ->
             putStrLn err >> return []
         Right v ->
-            return . mergeTransfers $ Vec.toList v
+            return . sortByDate . mergeTransfers $ Vec.toList v
     where
+        sortByDate :: [Transaction] -> [Transaction]
+        sortByDate =
+            sortBy (flip compare `on` transactionDate)
         mergeTransfers :: [Transaction] -> [Transaction]
         mergeTransfers = \case
             [] ->
