@@ -10,8 +10,9 @@ module App
 
 import Brick
 import Brick.BChan (BChan, newBChan, writeBChan)
-import Control.Concurrent (ThreadId, forkIO, threadDelay)
-import Control.Exception (IOException, catch)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (Async, async)
+import Control.Exception.Safe (catchAny)
 import Control.Monad (forM)
 import Data.List (nub)
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -42,7 +43,10 @@ config =
 
 -- | Create a Brick Event Channel that receives PriceUpdate events from
 -- forked GDAX & Binance Ticker Update Threads.
-priceUpdateChannel :: [Transaction] -> IO (BChan AppEvent, [ThreadId])
+--
+-- TODO: Combine all GDAX streams into a single, multi-currency stream.
+-- TODO: Combine all Binance streams into a single, multi-currency stream.
+priceUpdateChannel :: [Transaction] -> IO (BChan AppEvent, [Async ()])
 priceUpdateChannel transactions = do
     channel <- newBChan 20
     gdaxThread <- priceUpdateThread channel eth GDAX.connect
@@ -50,12 +54,12 @@ priceUpdateChannel transactions = do
         priceUpdateThread channel c (Binance.connect symbol)
     return (channel, gdaxThread : binanceThreads)
     where
-        priceUpdateThread :: BChan AppEvent -> Currency -> ((String -> IO ()) -> IO ()) -> IO ThreadId
+        priceUpdateThread :: BChan AppEvent -> Currency -> ((String -> IO ()) -> IO ()) -> IO (Async ())
         priceUpdateThread channel currency getPrice =
-            forkIO $ retryForever $ getPrice $ \priceString ->
+            async $ retryForever $ getPrice $ \priceString ->
                 writeBChan channel . PriceUpdate currency $ readDecimalQuantity priceString
         retryForever :: IO a -> IO a
-        retryForever action = catch action $ \(_ :: IOException) ->
+        retryForever action = catchAny action . const $
             threadDelay 500000 >> retryForever action
         currencies :: [Currency]
         currencies =

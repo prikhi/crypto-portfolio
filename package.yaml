@@ -26,15 +26,18 @@ ghc-options:
 - -Wredundant-constraints
 - -Werror
 
+# TODO: split these into global, exe, & lib dependencies.
 dependencies:
 - base >= 4.7 && < 5
 - aeson
+- async
 - brick
 - bytestring
 - cassava
 - containers
 - lens
 - text
+- safe-exceptions
 - scientific
 - stm
 - time
