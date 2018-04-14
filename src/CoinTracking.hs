@@ -14,6 +14,13 @@ import qualified Data.Vector as Vec
 import Types
 
 -- | Parse a Coin Tracking `Trade Table` CSV Export.
+--
+-- Deposits & Withdrawals with the same date, quantity, & currency are
+-- merged into Transfers.
+--
+-- Trades with fees that are the same Currency as the buy Currency will
+-- have the fee added to the buy amount, since CoinTracking assumes the fee
+-- has been subtracted for calculations and we do not.
 readTradeTableExport :: String -> IO [Transaction]
 readTradeTableExport fileName = do
     csvData <- L.drop 1 . LC.dropWhile (/= '\n') <$> L.readFile fileName
@@ -21,11 +28,30 @@ readTradeTableExport fileName = do
         Left err ->
             putStrLn err >> return []
         Right v ->
-            return . sortByDate . mergeTransfers $ Vec.toList v
+            return . sortByDate . map fixFeeAmounts . mergeTransfers $ Vec.toList v
     where
         sortByDate :: [Transaction] -> [Transaction]
         sortByDate =
             sortBy (flip compare `on` transactionDate)
+        fixFeeAmounts :: Transaction -> Transaction
+        fixFeeAmounts t = case transactionData t of
+            Trade td ->
+                case (,) <$> tradeFeeCurrency td <*> tradeFeeQuantity td of
+                    Just (currency, amount) ->
+                        if currency == tradeBuyCurrency td then
+                            t
+                                { transactionData =
+                                    Trade td
+                                        { tradeBuyQuantity =
+                                            amount + tradeBuyQuantity td
+                                        }
+                                }
+                        else
+                            t
+                    Nothing ->
+                        t
+            _ ->
+                t
         mergeTransfers :: [Transaction] -> [Transaction]
         mergeTransfers = \case
             [] ->
