@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 module EthereumGains
     ( State
@@ -9,300 +8,151 @@ module EthereumGains
     ) where
 
 import Brick
-import Control.Monad ((<=<))
+import Control.Lens ((^.))
 import Data.Maybe (mapMaybe, fromMaybe)
 
 import qualified Brick.Widgets.Border as B
 import qualified Data.Map as Map
 
+import GainsTable
 import Types
-import Table
+import qualified QuantityQueue as QQ
+
 
 data State
     = State
-        { currencyCache :: CurrencyCache
-        , aggregateData :: AggregateData
+        { gainsState :: GainsState
+        , ethUSDPrice :: Maybe Quantity
         }
 
--- | A Mapping From Currencies to Their Calculated Data
-type CurrencyCache
-    = Map.Map Currency CurrencyData
-
--- | Data We Have Calculated from the `Trade`s & Prices.
-data CurrencyData
-    = CurrencyData
-        { cCostBasis :: Quantity
-        , cTotalQuantity :: Quantity
-        , cTotalCost :: Quantity
-        , cPrice :: Maybe Quantity
-        , cPriceChange :: Maybe Rational
-        , cCurrentValue :: Maybe Quantity
-        , cGainLoss :: Maybe Quantity
-        }
-
--- | Aggregate Calculations Built from the `CurrencyCache`.
-data AggregateData
-    = AggregateData
-        { aTotalCost :: Quantity
-        , aTotalValue :: Quantity
-        , aGainLoss :: Quantity
-        , aTotalChange :: Rational
-        }
+-- TODO: Get & display amount of USD-ETH bought/sold
 
 -- | Build the Cache & Aggregates using the given Transactions.
 initial :: [Transaction] -> State
 initial ts =
-    let
-        cache = buildCurrencyCache initialCache $ getTransactions ts
-    in
-        State
-            { currencyCache = cache
-            , aggregateData = AggregateData 0 0 0 0
-            }
-    where
-        -- | Add dummy ETH data since it's not added by buildCurrencyCache
-        -- TODO: Might be easier to add separate ETH price to AppState or
-        -- make a BTC/LTC/ETH->USD cache in AppState.
-        initialCache :: CurrencyCache
-        initialCache = Map.fromList
-            [ ( eth
-              , CurrencyData
-                { cCostBasis = 0
-                , cTotalQuantity = 0
-                , cTotalCost = 0
-                , cPrice = Nothing
-                , cPriceChange = Nothing
-                , cCurrentValue = Nothing
-                , cGainLoss = Nothing
-                }
-              )
-            ]
+    State
+        { gainsState =
+            initialGainsState addTransaction . reverse
+                $ getTransactions ts
+        , ethUSDPrice =
+            Nothing
+        }
 
 -- | Filter out non-Ethereum or USD-ETH Transactions.
 getTransactions :: [Transaction] -> [Transaction]
 getTransactions =
     mapMaybe $ \transaction -> case transactionData transaction of
         Trade t ->
-            if (tradeSellCurrency t == eth || tradeBuyCurrency t == eth)
-                    && tradeSellCurrency t /= Currency "USD" then
+            if (tradeSellCurrency t == eth && tradeBuyCurrency t /= Currency "USD")
+                    || (tradeBuyCurrency t == eth && tradeSellCurrency t /= Currency "USD") then
                 Just transaction
             else
                 Nothing
         _ ->
             Nothing
 
-
-buildCurrencyCache :: CurrencyCache -> [Transaction] -> CurrencyCache
-buildCurrencyCache =
-    foldl newTransaction
+-- | Modify the ETH Currency Queues to Account for a new Transaction.
+--
+-- Everything but Altcoin<->ETH trades are ignored & the (ETH / altcoin)
+-- ratio is used for the buy & sell prices.
+addTransaction :: Transaction -> Queues -> Queues
+addTransaction Transaction {transactionData} =
+    case transactionData of
+        Trade td ->
+            let
+                buyCurrency =
+                    tradeBuyCurrency td
+                buyQuantity =
+                    tradeBuyQuantity td
+                sellCurrency =
+                    tradeSellCurrency td
+                sellQuantity =
+                    tradeSellQuantity td
+                ethPrice =
+                    case (buyCurrency, sellCurrency) of
+                        (Currency "ETH", _) ->
+                            buyQuantity / sellQuantity
+                        _ ->
+                            sellQuantity / buyQuantity
+            in
+                updateQueues (QQ.addSale sellQuantity ethPrice) sellCurrency
+                    . updateFee td
+                    . updateQueues (QQ.addPurchase buyQuantity ethPrice Nothing) buyCurrency
+        _ ->
+            id
     where
-        newTransaction :: CurrencyCache -> Transaction -> CurrencyCache
-        newTransaction cache Transaction {transactionData} =
-            case transactionData of
-                Trade t ->
-                    let
-                        currency = tradeBuyCurrency t
-                        newVal = updateOrBuildData t $ Map.lookup currency cache
-                    in
-                        Map.insert currency newVal cache
-                _ ->
-                    cache
+        updateFee :: TradeData -> Queues -> Queues
+        updateFee td =
+            case (,) <$> tradeFeeCurrency td <*> tradeFeeQuantity td of
+                Just (currency, quantity) ->
+                    updateQueues (QQ.addFee quantity) currency
+                Nothing ->
+                    id
+        updateQueues :: (QQ.Queue -> QQ.Queue) -> Currency -> Queues -> Queues
+        updateQueues f c =
+            if c /= eth then
+                Map.alter (Just . f . fromMaybe QQ.empty) c
+            else
+                id
 
-        -- TODO: Build a FIFO queue w/ a currencies buy amt & price, use to
-        -- build cache after parsing all Transactions.
-        updateOrBuildData :: TradeData -> Maybe CurrencyData -> CurrencyData
-        updateOrBuildData trade = \case
-            Nothing ->
-                CurrencyData
-                    { cCostBasis = tradeSellQuantity trade / tradeBuyQuantity trade
-                    , cTotalQuantity = tradeBuyQuantity trade
-                    , cTotalCost = tradeSellQuantity trade
-                    , cPrice = Nothing
-                    , cPriceChange = Nothing
-                    , cCurrentValue = Nothing
-                    , cGainLoss = Nothing
-                    }
-            Just cData ->
-                CurrencyData
-                    { cCostBasis =
-                        (cCostBasis cData * cTotalQuantity cData + tradeSellQuantity trade)
-                            / (cTotalQuantity cData + tradeBuyQuantity trade)
-                    , cTotalQuantity =
-                        cTotalQuantity cData + tradeBuyQuantity trade
-                    , cTotalCost =
-                        cCostBasis cData * cTotalQuantity cData + tradeSellQuantity trade
-                    , cPrice = Nothing
-                    , cPriceChange = Nothing
-                    , cCurrentValue = Nothing
-                    , cGainLoss = Nothing
-                    }
+
 
 -- | Update the CurrencyCache & AggregateData Given a New Price.
 updatePrice :: State -> Currency -> Quantity -> State
-updatePrice s currency price =
-    let
-        newCache = updateCachePrice $ currencyCache s
-    in
-        s
-            { currencyCache = newCache
-            , aggregateData = calculateAggregates newCache
-            }
-    where
-        -- Update the Price & Calculations for a Currency
-        updateCachePrice :: CurrencyCache -> CurrencyCache
-        updateCachePrice =
-            let
-                currentValue cData = cTotalQuantity cData * price
-            in
-                Map.adjust
-                    (\cData -> cData
-                        { cPrice = Just price
-                        , cPriceChange = Just $ percentChange (cCostBasis cData) price
-                        , cCurrentValue = Just $ currentValue cData
-                        , cGainLoss = Just $ currentValue cData - cTotalCost cData
-                        }
-
-                    )
-                    currency
-        calculateAggregates :: CurrencyCache -> AggregateData
-        calculateAggregates cache =
-            let
-                (costs, value) =
-                    Map.foldl collectCostAndValue (0, 0) cache
-            in
-                AggregateData
-                    { aTotalCost = costs
-                    , aTotalValue = value
-                    , aGainLoss = value - costs
-                    , aTotalChange =
-                        if costs == 0 then
-                            0
-                        else
-                            fromQuantity $ (value - costs) / costs * 100
-                    }
-            where
-                collectCostAndValue (cost, value) cData =
-                    (cost + cTotalCost cData, value + fromMaybe 0 (cCurrentValue cData))
-        percentChange :: Quantity -> Quantity -> Rational
-        percentChange (Quantity original) (Quantity new) =
-            (new - original) / original * 100
+updatePrice s@(State gs _) currency price =
+    if currency == eth then
+        s { ethUSDPrice = Just price }
+    else
+        s { gainsState = updateGainsState currency price gs }
 
 
 -- | Render the Ethereum Gains Table
 view :: State -> [Widget AppWidget]
-view s =
+view s@(State gs _) =
     [ vBox
         [ B.hBorderWithLabel (str " Ethereum Gains ")
         , B.border
             . padLeftRight 1
-            . table (tableConfig s)
+            . renderGainsTable EthereumGainsTable 8 (tableFooter s) gs
             . reverse
             . Map.foldlWithKey (\acc k v -> if k == eth then acc else (k, v) : acc) []
-            $ currencyCache s
+            $ gainsState s ^. currencyCache
         , statusBar s
         ]
     ]
 
 
 -- | Render a Simple Status Bar Showing the Current USD Price for ETH.
+-- TODO: Show 1d/1w/1m % Change
 statusBar :: State -> Widget n
-statusBar s =
+statusBar (State _ ethUSDPrice) =
     padLeft Max
         $ padRight (Pad 1)
         $ str
         $ maybe "Loading GDAX Stream..." (("ETH-USD: $" ++) . showQuantity 2)
-        $ cPrice <=< Map.lookup eth
-        $ currencyCache s
+            ethUSDPrice
 
-
-tableConfig :: State -> TableConfig (Currency, CurrencyData) AppWidget
-tableConfig s =
-    TableConfig
-        { columns = tableColumns
-        , showRowDividers = True
-        , footerRows = tableFooter s
-        , name = EthereumGainsTable
-        }
-
-tableColumns :: [Column (Currency, CurrencyData)]
-tableColumns =
-    [ column
-        { headerName = "Currency"
-        , headerAlign = Alignment VMiddle HCenter
-        , dataAlign = Alignment VMiddle HCenter
-        , columnWeight = 1
-        , dataSelector = show . fst
-        }
-    , column
-        { headerName = "Total Quantity"
-        , dataSelector = show . cTotalQuantity . snd
-        }
-    , column
-        { headerName = "Cost Per Unit"
-        , dataSelector = show . cCostBasis . snd
-        }
-    , column
-        { headerName = "Current Price"
-        , dataSelector = maybe "Loading..." show . cPrice . snd
-        }
-    , column
-        { headerName = "% Change"
-        , dataSelector = maybe "--" (showRational 2) . cPriceChange . snd
-        , columnWeight = 5
-        }
-    , column
-        { headerName = "Total Cost"
-        , dataSelector = show . cTotalCost . snd
-        }
-    , column
-        { headerName = "Curent Value"
-        , dataSelector = maybeText . cCurrentValue . snd
-        }
-    , column
-        { headerName = "Gain / Loss"
-        , dataSelector = maybeText . cGainLoss . snd
-        }
-    ]
-    where
-        maybeText =
-            maybe "--" show
-        column =
-            Column
-                { headerName = ""
-                , headerAlign = Alignment VMiddle HRight
-                , dataAlign = Alignment VMiddle HRight
-                , columnWeight = 15
-                , dataSelector = const ""
-                }
 
 -- | Render the Totals Row of the Table
 tableFooter :: State -> [[Widget n]]
-tableFooter State { currencyCache, aggregateData } =
+tableFooter (State s ethUSDPrice) =
     [ [ str " "
       , str " "
       , str " "
-      , alignRight "Totals:"
-      , alignRight $ showRational 2 $ aTotalChange aggregateData
-      , alignRight $ show $ aTotalCost aggregateData
-      , alignRight $ show $ aTotalValue aggregateData
-      , alignRight $ show $ aGainLoss aggregateData
-      ]
-    , [ str " "
       , str " "
       , str " "
-      , str " "
-      , str " "
-      , inUSD $ aTotalCost aggregateData
-      , inUSD $ aTotalValue aggregateData
-      , inUSD $ aGainLoss aggregateData
+      , inUSD aTotalCost
+      , inUSD aTotalValue
+      , inUSD aUnrealizedGains
+      , inUSD aRealizedGains
       ]
     ]
-    where inUSD d =
+    where
+        inUSD :: (AggregateData -> Quantity) -> Widget n
+        inUSD f =
             alignRight
-                . maybe "Loading..." (("$" ++) . showQuantity 2 . (* d))
-                $ cPrice =<< Map.lookup eth currencyCache
-
-
--- | Align a String to the Right of it's Parent Widget.
-alignRight :: String -> Widget n
-alignRight = padLeft Max . str
+                . maybe "Loading..."
+                    (("$" ++) . showQuantity 2 . (* f (s ^. aggregateData)))
+                $ ethUSDPrice
+        alignRight :: String -> Widget n
+        alignRight = padLeft Max . str

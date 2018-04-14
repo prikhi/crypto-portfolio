@@ -18,26 +18,35 @@ It currently:
 
 Some short term things it could do:
 
-* Use sales in cost basis(FIFO)
+* Write script to generate random data(so I don't have to make up data when I
+  want to take a screenshot)
+* "Privacy" mode that obfuscates amounts but still shows percents/prices
+* Highlight focused table row(selection cursor that skips hBorders?)
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
 * Dashboard view - cointracking for inspiration
 * USD portfolio view
 * Sorting tables
-* Gracefully handle network & decoding errors, re-launch price process for exceptions.
 * Colors
+    * green for positive gains & percents, red for negative?
+    * Color type in trades list?
 
 And some bigger goals:
 
+* Allow changing Altcoin pair to other GDAX currencies(currently hardcoded to EH)
+* Filtering Tables(see CoinTracking filters)
 * Track things purchased w/ USD as well(e.g. portfolio & USD gains views)
 * Have it's own trade management system(so I don't need to use cointracking)
+    * Database: Persistent/Esqueleto or ACID? Needs `ReaderT IO` in update.
 * Allow Tagging/Grouping Trades
 * Track Exchanges
 * Import trades directly from GDAX & Binance API or exports
 * Have additional views(portfolio, add/edit trades, watch list, alerts, etc.)
+* Price alerts that send desktop notifications
 * Release Table module as Brick Widget package
-* Debug/info logging
+* Debug/info/error logging(Katip or fast-logger packages?)
 * Coin research views(subreddit, cmc data, wikipedia, google trends)
-* Servant JSON API w/ Elm frontend
+* Servant JSON API w/ Elm frontend? Or try reflex-platform for easy
+  web/desktop/mobile cross-compilation?
 
 
 ## Usage
