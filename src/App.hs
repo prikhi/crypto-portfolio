@@ -15,7 +15,7 @@ import Control.Concurrent.Async (Async, async)
 import Control.Exception.Safe (catchAny)
 import Control.Monad (forM)
 import Data.List (nub)
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe, maybeToList)
 
 import qualified Graphics.Vty as V
 
@@ -26,6 +26,7 @@ import qualified EthereumGains
 import qualified GDAX
 import qualified Styles
 import qualified TradeList
+import qualified USDGains
 
 
 -- General Brick App Configuration & Initialization
@@ -51,35 +52,45 @@ priceUpdateChannel transactions = do
     channel <- newBChan 20
     gdaxThreads <- forM GDAX.currencies $
         priceUpdateThread channel GDAX.connect
-    binanceThreads <- forM currencies $
+    binanceThreads <- forM binanceCurrencies $
         priceUpdateThread channel Binance.connect
     return (channel, gdaxThreads ++ binanceThreads)
     where
-        priceUpdateThread :: BChan AppEvent -> (Currency -> (String -> IO ()) -> IO ()) -> Currency -> IO (Async ())
+        priceUpdateThread
+            :: BChan AppEvent
+            -> (Currency -> (String -> IO ()) -> IO ())
+            -> Currency
+            -> IO (Async ())
         priceUpdateThread channel getPrice currency =
             async $ retryForever $ getPrice currency $ \priceString ->
-                writeBChan channel . PriceUpdate currency $ readDecimalQuantity priceString
+                writeBChan channel . PriceUpdate currency
+                    $ readDecimalQuantity priceString
         retryForever :: IO a -> IO a
         retryForever action = catchAny action . const $
             threadDelay 500000 >> retryForever action
-        currencies :: [Currency]
-        currencies =
-            nub . map tradeBuyCurrency $ getTrades transactions
-        getTrades :: [Transaction] -> [TradeData]
-        getTrades ts =
-            flip mapMaybe (EthereumGains.getTransactions ts)
-                $ \tr -> case transactionData tr of
-                    Trade t ->
-                        Just t
-                    _ ->
-                        Nothing
+        binanceCurrencies :: [Currency]
+        binanceCurrencies =
+            filter (`notElem` GDAX.currencies) . nub . concat
+                $ mapMaybe getCurrencies transactions
+        getCurrencies :: Transaction -> Maybe [Currency]
+        getCurrencies t =
+            case transactionData t of
+                Trade td ->
+                    Just $
+                        [ tradeBuyCurrency td
+                        , tradeSellCurrency td
+                        ] ++ maybeToList (tradeFeeCurrency td)
+                Income d ->
+                    Just $ incomeCurrency d : maybeToList (incomeFeeCurrency d)
+                _ ->
+                    Nothing
 
 
 
 -- MODEL
 
--- | The state of the application, including TVars as caches & asynchronous
--- update channels.
+-- | The data available to the application UI when rendering & responding
+-- to actions.
 data AppState
     = AppState
         { appTransactions :: [Transaction]
@@ -87,40 +98,48 @@ data AppState
         , appViewData :: ViewData
         }
 
+-- | The different views/screens available in the application.
 data AppView
     = EthereumGains
+    | USDGains
     | TradeList
     deriving (Bounded, Enum, Eq)
 
-newtype ViewData
+-- | The data associated with each `AppView`.
+data ViewData
     = ViewData
         { vdEthereumGains :: EthereumGains.State
+        , vdUSDGains :: USDGains.State
         }
+
+-- | All custom events the application may respond to.
+data AppEvent
+    = PriceUpdate Currency Quantity     -- ^ Sent When a New GDAX/Binance Price is Received
 
 
 
 -- INITIALIZATION
 
 -- | Initialize each View's data & set the default View.
-initialState :: [Transaction] -> AppState
-initialState transactions =
-    AppState
+initialState :: [Transaction] -> IO AppState
+initialState transactions = do
+    usdGainsInitial <- USDGains.initial transactions
+    return AppState
         { appTransactions = transactions
         , appCurrentView = EthereumGains
-        , appViewData = initialViewData
+        , appViewData = initialViewData usdGainsInitial
         }
     where
-        initialViewData :: ViewData
-        initialViewData =
-            ViewData $ EthereumGains.initial transactions
+        initialViewData :: USDGains.State -> ViewData
+        initialViewData usdgInitial =
+            ViewData
+                { vdEthereumGains = EthereumGains.initial transactions
+                , vdUSDGains = usdgInitial
+                }
 
 
 
 -- UPDATE
-
--- | The Application-Specific Events
-data AppEvent
-    = PriceUpdate Currency Quantity
 
 -- | Update the State on Key Events & `Tick`s.
 update :: AppState -> BrickEvent AppWidget AppEvent -> EventM AppWidget (Next AppState)
@@ -143,6 +162,8 @@ update s = \case
                         updateTable TradeListTable ev >> continue s
                     EthereumGains ->
                         updateTable EthereumGainsTable ev >> continue s
+                    USDGains ->
+                        updateTable USDGainsTable ev >> continue s
 
     AppEvent appEv ->
         case appEv of
@@ -173,6 +194,9 @@ handlePriceUpdate s currency quantity =
                 { vdEthereumGains =
                     EthereumGains.updatePrice
                         (vdEthereumGains (appViewData s)) currency quantity
+                , vdUSDGains =
+                    USDGains.updatePrice
+                        (vdUSDGains (appViewData s)) currency quantity
                 }
 
 
@@ -185,5 +209,7 @@ view s =
     case appCurrentView s of
         EthereumGains ->
             EthereumGains.view . vdEthereumGains $ appViewData s
+        USDGains ->
+            USDGains.view . vdUSDGains $ appViewData s
         TradeList ->
             TradeList.view $ appTransactions s

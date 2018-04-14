@@ -15,7 +15,7 @@ main :: IO ()
 main = do
     transactions <- readTradeTableExport "trade_table.csv"
     (updateChannel, updateThreadIds) <- priceUpdateChannel transactions
-    let appState = App.initialState transactions
+    appState <- App.initialState transactions
     void $ customMain defaultVty (Just updateChannel) App.config appState
     mapM_ cancel updateThreadIds
     where defaultVty =

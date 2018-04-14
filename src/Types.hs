@@ -1,11 +1,14 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types where
 
 import Control.Monad (mzero)
+import Data.Binary (Binary)
 import Data.Csv ((.!))
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
 import Data.Time.Clock (UTCTime)
+import GHC.Generics (Generic)
 
 import qualified Data.Csv as Csv
 import qualified Data.Text as T
@@ -15,6 +18,7 @@ import qualified Data.Text as T
 -- | Represents the Unique Identifiers of Widgets Used in the Application.
 data AppWidget
     = EthereumGainsTable
+    | USDGainsTable
     | TradeListTable
     deriving (Eq, Ord, Show)
 
@@ -26,7 +30,9 @@ data AppWidget
 newtype Quantity
     = Quantity
         { fromQuantity :: Rational
-        } deriving (Eq, Num, Fractional)
+        } deriving (Eq, Ord, Num, Fractional, Generic)
+
+instance Binary Quantity
 
 -- | Show 8 Decimal Places by Default.
 instance Show Quantity where
@@ -75,7 +81,9 @@ showRational decimalPlaces rat =
 -- | Used as an Identifier for CryptoCurrencies.
 newtype Currency
     = Currency { toSymbol :: String }
-    deriving (Ord, Eq)
+    deriving (Ord, Eq, Generic)
+
+instance Binary Currency
 
 -- | Currencies are Represented by their Ticker Symbol
 instance Show Currency where
@@ -85,6 +93,8 @@ instance Show Currency where
 eth :: Currency
 eth =
     Currency "ETH"
+
+-- TODO: Add `usd` & `btc` currencies as well, maybe patterns for case matching
 
 
 
@@ -99,6 +109,7 @@ data Transaction
         } deriving (Show)
 
 -- | TODO: Change all `Exchange` fields to `Account`? To make more general for wallets
+-- TODO: Change fee's from 2 maybes into single maybe tuple.
 data TransactionData
     = Trade TradeData
     | Income IncomeData

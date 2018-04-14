@@ -32,6 +32,7 @@ module GainsTable
     , Queues
     -- Initialize / Update
     , initialGainsState
+    , updateCurrencyQueues
     , updateGainsState
     , updateCachePrice
     , calculateAggregates
@@ -95,6 +96,10 @@ data GainsState
         }
 makeLenses ''GainsState
 
+
+
+-- INITIALIZATION
+
 -- | Build the initial state for the Gains Table using a queue updating
 -- function & some Transactions.
 initialGainsState :: (Transaction -> Queues -> Queues) -> [Transaction] -> GainsState
@@ -132,6 +137,17 @@ buildTotals queue =
             , cUnrealizedGains = Nothing
             , cRealizedGains = QQ.realizedGains queue
             }
+
+-- | Update a Currency's Queue unless it matches the Queues' Price Currency
+-- (e.g., ignore USD updates for the USD Gains Table).
+updateCurrencyQueues :: Currency -> (QQ.Queue -> QQ.Queue) -> Currency -> Queues -> Queues
+updateCurrencyQueues baseCurrency queueUpdater currency =
+    if currency /= baseCurrency then
+        Map.alter (Just . queueUpdater . fromMaybe QQ.empty) currency
+    else
+        id
+
+
 
 -- UPDATE
 
@@ -200,6 +216,7 @@ calculateAggregates c =
             , value + fromMaybe 0 (cCurrentValue cData)
             , gain + cRealizedGains cData
             )
+
 
 
 -- RENDER

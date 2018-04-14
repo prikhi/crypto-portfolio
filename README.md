@@ -6,11 +6,13 @@ This is a simple prototype at the moment.
 
 It currently:
 
-* Reads my cointracking.info Trades from a CSV
-* Streams the current price of ETH in USD from GDAX
-* Streams the current prices of each of my coins from Binance
-* Shows the amount, cost, value, % change & gains for each coin.
-* Shows the total cost, value, & gains for altcoin portfolio, in ETH & USD.
+* Reads my cointracking.info Trades from a CSV.
+* Streams the current USD price of each coin from GDAX.
+* Streams the current ETH or BTC prices of each of my coins from Binance.
+* Shows an Ethereum Gains table: the amount, cost, value, % change, & gains for
+  any altcoins I've traded with ETH, with totals in both ETH & USD.
+* Shows a USD Gains table: the amount, cost, value, % change, & gains for every
+  coin I've traded, earned, & spent.
 * Shows a list of all Trades, Income, Expenses, & Transfers.
 
 ![The User Interface of the Crypto Portfolio Program, Showing a Table of Costs, Values, and Gains for Several Cryptocurrencies](http://bugs.sleepanarchy.com/projects/crypto-portfolio/repository/revisions/master/entry/screenshot.png "KSP Automation Screenshot")
@@ -19,12 +21,18 @@ It currently:
 Some short term things it could do:
 
 * Write script to generate random data(so I don't have to make up data when I
-  want to take a screenshot)
+  want to take a screenshot), maybe using historical prices so gains are
+  realistic.
 * "Privacy" mode that obfuscates amounts but still shows percents/prices
 * Highlight focused table row(selection cursor that skips hBorders?)
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
 * Dashboard view - cointracking for inspiration
-* USD portfolio view
+    * current BTC & ETH price
+    * total coin value in USD
+    * total USD investment
+    * current account value & 24hr change
+    * currency table w/ quantity, unrealized gains, price, & % change
+    * balance per exchange/account
 * Sorting tables
 * Colors
     * green for positive gains & percents, red for negative?
@@ -32,18 +40,19 @@ Some short term things it could do:
 
 And some bigger goals:
 
-* Allow changing Altcoin pair to other GDAX currencies(currently hardcoded to EH)
+* Allow changing Altcoin pair to other GDAX currencies(currently hardcoded to ETH)
 * Filtering Tables(see CoinTracking filters)
-* Track things purchased w/ USD as well(e.g. portfolio & USD gains views)
 * Have it's own trade management system(so I don't need to use cointracking)
     * Database: Persistent/Esqueleto or ACID? Needs `ReaderT IO` in update.
-* Allow Tagging/Grouping Trades
-* Track Exchanges
+* Allow Tagging/Grouping Trades(Search/Filter)
+* Track Exchanges(Search/Filter)
 * Import trades directly from GDAX & Binance API or exports
-* Have additional views(portfolio, add/edit trades, watch list, alerts, etc.)
+* Have additional views(dashboard, add/edit trades, watch list, alerts, etc.)
 * Price alerts that send desktop notifications
 * Release Table module as Brick Widget package
+* Release Binance & GDAX modules as package(even though it's incomplete)
 * Debug/info/error logging(Katip or fast-logger packages?)
+* More reports, see CoinTracking for inspiration
 * Coin research views(subreddit, cmc data, wikipedia, google trends)
 * Servant JSON API w/ Elm frontend? Or try reflex-platform for easy
   web/desktop/mobile cross-compilation?

@@ -1,3 +1,5 @@
 .stack-work/
 crypto-portfolio.cabal
 *~
+usd-price-cache.bin
+trade_table.csv

@@ -9,7 +9,7 @@ module EthereumGains
 
 import Brick
 import Control.Lens ((^.))
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Maybe (mapMaybe)
 
 import qualified Brick.Widgets.Border as B
 import qualified Data.Map as Map
@@ -89,11 +89,8 @@ addTransaction Transaction {transactionData} =
                 Nothing ->
                     id
         updateQueues :: (QQ.Queue -> QQ.Queue) -> Currency -> Queues -> Queues
-        updateQueues f c =
-            if c /= eth then
-                Map.alter (Just . f . fromMaybe QQ.empty) c
-            else
-                id
+        updateQueues =
+            updateCurrencyQueues eth
 
 
 
