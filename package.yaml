@@ -35,7 +35,9 @@ dependencies:
 - bytestring
 - cassava
 - containers
+- iso8601-time
 - lens
+- lens-aeson
 - text
 - safe-exceptions
 - scientific
@@ -44,6 +46,7 @@ dependencies:
 - vector
 - vty
 - websockets
+- wreq
 - wuss
 
 library:

@@ -20,12 +20,12 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import qualified Graphics.Vty as V
 
 import Binance
-import GDAX
 import Table
 import Types
 import qualified EthereumGains
-import qualified TradeList
+import qualified GDAX
 import qualified Styles
+import qualified TradeList
 
 
 -- General Brick App Configuration & Initialization
@@ -49,14 +49,15 @@ config =
 priceUpdateChannel :: [Transaction] -> IO (BChan AppEvent, [Async ()])
 priceUpdateChannel transactions = do
     channel <- newBChan 20
-    gdaxThread <- priceUpdateThread channel eth GDAX.connect
-    binanceThreads <- forM currencies $ \c@(Currency symbol) ->
-        priceUpdateThread channel c (Binance.connect symbol)
-    return (channel, gdaxThread : binanceThreads)
+    gdaxThreads <- forM GDAX.currencies $
+        priceUpdateThread channel GDAX.connect
+    binanceThreads <- forM currencies $
+        priceUpdateThread channel Binance.connect
+    return (channel, gdaxThreads ++ binanceThreads)
     where
-        priceUpdateThread :: BChan AppEvent -> Currency -> ((String -> IO ()) -> IO ()) -> IO (Async ())
-        priceUpdateThread channel currency getPrice =
-            async $ retryForever $ getPrice $ \priceString ->
+        priceUpdateThread :: BChan AppEvent -> (Currency -> (String -> IO ()) -> IO ()) -> Currency -> IO (Async ())
+        priceUpdateThread channel getPrice currency =
+            async $ retryForever $ getPrice currency $ \priceString ->
                 writeBChan channel . PriceUpdate currency $ readDecimalQuantity priceString
         retryForever :: IO a -> IO a
         retryForever action = catchAny action . const $
