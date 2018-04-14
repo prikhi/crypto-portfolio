@@ -182,12 +182,17 @@ renderTable config w h is =
         boldBorder =
             cropToContext $ withBorderStyle B.unicodeBold B.hBorder
         widths =
-            if availableSpacePerColumn > 0 then
-                map (+ availableSpacePerColumn) shrunkWidths
-            else
-                shrunkWidths
+            case shrunkWidths of
+                x : xs ->
+                    x + availableSpacePerColumn + remainingSpace - 1
+                    : map (+ availableSpacePerColumn) xs
+                [] ->
+                    []
+        -- Partially apply space if not evenly divisible
         availableSpacePerColumn =
             (w - sum shrunkWidths) `div` toInteger (length cs)
+        remainingSpace =
+            (w - sum shrunkWidths) `mod` toInteger (length cs)
         shrunkWidths =
             shrinkToMaxRowLengths cs is $ makeWeights cs is w
         cs =
