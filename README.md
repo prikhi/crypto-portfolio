@@ -74,10 +74,14 @@ You can find more refactoring/cleanup sort of stuff by greping the `src` and
     * total USD investment
     * current account value & 24hr change
     * currency table w/ quantity, value / unrealized gains, price, & % change
-    * balance per exchange/account
+    * balance per exchange/account and/or currency
+    * Bar graph of each currency's portfolio percentage(coin val / total val)
+        * Could use stacked Brick.Widgets.ProgressBar for horizontal graph
+        * See https://github.com/christ0ph3r/cryptocurrency-cli for inspiration
 * Colors
     * green for positive gains & percents, red for negative?
     * Color "Type" column in trades list?
+    * `Graphics.Vty.Attributes` offers 240 color support.
 
 ## Long Term
 
@@ -92,7 +96,8 @@ You can find more refactoring/cleanup sort of stuff by greping the `src` and
 * Have it's own trade management system(so I don't need to use cointracking)
     * Mimic the CoinTracking "Enter Coins" page?
     * Allow editing Trades directly from Trades List view
-    * Database: Persistent/Esqueleto or ACID? Needs `ReaderT IO` in update.
+    * Database: Persistent/Esqueleto, ACID State, or Beam? Needs `ReaderT IO`
+      in update.
     * Full data exports in CSV and/or XLS/ODS.
     * Allow Tagging/Grouping Trades(Search/Filter)
     * Track Exchanges(Search/Filter)
