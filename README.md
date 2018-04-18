@@ -6,7 +6,8 @@ This is an early alpha of a Cryptocurrency Portfolio management application
 with a terminal UI.
 
 Right now it's mostly useful if you trade mostly on GDAX or Binance & have your
-transactions entered in at http://CoinTracking.info.
+transactions entered in at http://CoinTracking.info. If you don't use
+CoinTracking, you can generate some randomized data to play around with.
 
 ## Features
 
@@ -33,6 +34,10 @@ Build it with `stack`:
 Go to the `Enter Coins` page on https://CoinTracking.info, hit the `Export`
 button and choose `CSV`. Move it to this directory and call it
 `trade_table.csv`.
+
+If you don't use CoinTracking, you can generate some fake data instead:
+
+    stack exec generate-data
 
 Now run the app:
 
@@ -61,9 +66,6 @@ You can find more refactoring/cleanup sort of stuff by greping the `src` and
 
 ### Short Term
 
-* Write script to generate random data(so I don't have to make up data when I
-  want to take a screenshot), maybe using historical prices so gains are
-  realistic.
 * "Privacy" mode that obfuscates amounts but still shows percents/prices
 * Highlight focused table row(skipping horizontal dividers) 
     * Completely highlight multi-line rows

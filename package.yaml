@@ -64,6 +64,20 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - crypto-portfolio
+  generate-data:
+    main:                GenerateData.hs
+    other-modules:       []
+    source-dirs:         scripts
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - crypto-portfolio
+    - directory
+    - mtl
+    - QuickCheck
+    - random
 
 tests:
   crypto-portfolio-test:
