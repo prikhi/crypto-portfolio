@@ -11,6 +11,7 @@ import Brick
 import Control.Concurrent (threadDelay)
 import Control.Exception.Safe (catchIO)
 import Control.Lens ((&), (^.), (.~))
+import Control.Monad (unless)
 import Data.Binary.Orphans (encodeFile, decodeFile)
 import Data.List (partition, nubBy)
 import Data.Maybe (fromMaybe, catMaybes, maybeToList)
@@ -69,9 +70,8 @@ initial ts = do
             return priceCache
         loadCache :: IO PriceCache
         loadCache =
-            catchIO (decodeFile priceCacheFilename) . const $
-                putStrLn "Fetching Historical Prices. This may take a while."
-                    >> return Map.empty
+            catchIO (decodeFile priceCacheFilename) . const
+                $ return Map.empty
 
 
 -- | Build a Historical USD Price Cache for all Transactions.
@@ -82,6 +82,8 @@ initial ts = do
 -- GDAX calls slow this down a lot - they only allow 3 per second.
 buildPriceCache :: PriceCache -> [Transaction] -> IO PriceCache
 buildPriceCache initialCache ts = do
+    unless (null binanceTrades && null gdaxTrades) $
+        putStrLn "Fetching Historical Prices. This may take a while."
     binancePrices <- concat <$> mapM getBinanceUSDPrice binanceTrades
     gdaxPrices <- catMaybes <$> mapM getGDAXPrice gdaxTrades
     return
@@ -125,6 +127,7 @@ buildPriceCache initialCache ts = do
         binanceTrades :: [((Currency, UTCTime), Maybe Quantity)]
         (gdaxTrades, binanceTrades) =
             partition ((`elem` GDAX.currencies) . fst . fst)
+                $ filter (\(ct, _) -> Map.notMember ct initialCache)
                 $ nubBy (\(a, _) (b, _) -> a == b) currenciesAndDates
         -- Build a list of historical prices to fetch, along with
         -- a potential altcoin/eth price.
