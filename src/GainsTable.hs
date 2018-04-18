@@ -272,7 +272,7 @@ tableColumns decimalPlaces =
     , column
         { headerName = "% Change"
         , dataSelector = maybe "--" (showRational 2) . cPriceChange . snd
-        , columnWeight = 5
+        , columnWeight = 6
         }
     , column
         { headerName = "Total Cost"
