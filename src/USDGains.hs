@@ -247,7 +247,16 @@ addTransaction priceCache t = case transactionData t of
         -- Update the queue for a Trade's sell Currency.
         updateSellCurrency :: TradeData -> Queues -> Queues
         updateSellCurrency td =
-            sell (tradeSellQuantity td) (tradeSellCurrency td)
+            case (tradeBuyCurrency td, tradeSellCurrency td) of
+                (Currency "USD", sCurrency) ->
+                    let
+                        sellPrice =
+                            tradeBuyQuantity td / tradeSellQuantity td
+                    in
+                        updateQueues (QQ.addSale (tradeSellQuantity td) sellPrice)
+                            sCurrency
+                _ ->
+                    sell (tradeSellQuantity td) (tradeSellCurrency td)
         updateFeeCurrency :: Maybe Currency -> Maybe Quantity -> Queues -> Queues
         updateFeeCurrency feeCurrency feeQuantity =
             case (,) <$> feeCurrency <*> feeQuantity of
