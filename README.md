@@ -68,6 +68,14 @@ You can find more refactoring/cleanup sort of stuff by greping the `src` and
 * Highlight focused table row(skipping horizontal dividers) 
     * Completely highlight multi-line rows
 * Toggle between latest price & 24hr/7d/1mo/1yr average prices
+* Total USD Realized Gains in Ethereum Gains table should be tied to historical
+  prices, not current price(right now ETH price updates change the realized
+  gains).
+* Build historical USD price cache in background
+    * use channel to send prices to main thread
+    * track total remaining requests, show progress bar on reliant views.
+    * re-serialize & save every time we get a price update
+    * properly handle exceptions while fetching(right now == runtime error)
 * Dashboard view - cointracking for inspiration
     * current BTC & ETH price
     * total coin value in USD
