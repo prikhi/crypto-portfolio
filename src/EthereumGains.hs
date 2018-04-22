@@ -110,7 +110,7 @@ view s@(State gs _) =
         [ B.hBorderWithLabel (str " Ethereum Gains ")
         , B.border
             . padLeftRight 1
-            . renderGainsTable EthereumGainsTable 8 (tableFooter s) gs
+            . renderGainsTable EthereumGainsTable 8 (tableFooter s) id gs
             . reverse
             . Map.foldlWithKey (\acc k v -> if k == eth then acc else (k, v) : acc) []
             $ gainsState s ^. currencyCache

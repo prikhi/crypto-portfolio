@@ -337,7 +337,7 @@ view (State s) =
         [ B.hBorderWithLabel (str " USD Gains ")
         , B.border
             . padLeftRight 1
-            . renderGainsTable USDGainsTable 2 [] s
+            . renderGainsTable USDGainsTable 2 [] ("$" ++) s
             . Map.toList
             $ s ^. currencyCache
         ]

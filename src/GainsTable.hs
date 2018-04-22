@@ -223,20 +223,22 @@ calculateAggregates c =
 
 -- | Render a Gains Table with the given percision & additional footer
 -- rows.
+-- TODO: Maybe the parameters could be a type like TableConfig.
 renderGainsTable
     :: (Ord n, Show n)
     => n
     -> Int
     -> [[Widget n]]
+    -> (String -> String)
     -> GainsState
     -> [(Currency, CurrencyData)]
     -> Widget n
-renderGainsTable n decimalPlaces extraFooterRows s =
+renderGainsTable n decimalPlaces extraFooterRows footerQuantityFormat s =
     table TableConfig
         { columns =
             tableColumns decimalPlaces
         , footerRows =
-            totalsRow decimalPlaces (s ^. aggregateData)
+            totalsRow footerQuantityFormat decimalPlaces (s ^. aggregateData)
             : extraFooterRows
         , name =
             n
@@ -307,17 +309,17 @@ tableColumns decimalPlaces =
 
 
 -- | Render the Aggregate Data as a Table Row.
-totalsRow :: Int -> AggregateData -> [Widget n]
-totalsRow decimalPlaces aggData =
+totalsRow :: (String -> String) -> Int -> AggregateData -> [Widget n]
+totalsRow quantityFormat decimalPlaces aggData =
     [ str " "
     , str " "
     , str " "
     , alignRight "Totals:"
     , alignRight $ showRational 2 $ aTotalChange aggData
-    , alignRight $ showQuantity decimalPlaces $ aTotalCost aggData
-    , alignRight $ showQuantity decimalPlaces $ aTotalValue aggData
-    , alignRight $ showQuantity decimalPlaces $ aUnrealizedGains aggData
-    , alignRight $ showQuantity decimalPlaces $ aRealizedGains aggData
+    , alignRight $ quantityFormat $ showQuantity decimalPlaces $ aTotalCost aggData
+    , alignRight $ quantityFormat $ showQuantity decimalPlaces $ aTotalValue aggData
+    , alignRight $ quantityFormat $ showQuantity decimalPlaces $ aUnrealizedGains aggData
+    , alignRight $ quantityFormat $ showQuantity decimalPlaces $ aRealizedGains aggData
     ]
     where
         alignRight :: String -> Widget n
