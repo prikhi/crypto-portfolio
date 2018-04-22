@@ -23,6 +23,7 @@ ghc-options:
 - -Wcompat
 - -Wincomplete-record-updates
 - -Wincomplete-uni-patterns
+- -Wnoncanonical-monad-instances
 - -Wredundant-constraints
 - -Werror
 
