@@ -232,7 +232,7 @@ instance Csv.ToRecord Transaction where
             ( transactionType, buyQuantity, buyCurrency, sellQuantity, sellCurrency, feeQuantity, feeCurrency, exchange ) =
                 case transactionData t of
                     Trade td ->
-                        ( "Trade"
+                        ( "Trade" :: String
                         , show $ tradeBuyQuantity td
                         , show $ tradeBuyCurrency td
                         , show $ tradeSellQuantity td
