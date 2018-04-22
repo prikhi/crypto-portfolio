@@ -97,6 +97,9 @@ You can find more refactoring/cleanup sort of stuff by greping the `src` and
 
 * Allow changing Altcoin pair to other GDAX currencies(currently hardcoded to ETH)
     * Could change Ethereum Gains to Altcoin Gains view.
+* Bar Graphs
+    * Ascii? Brick.Widgets.ProgressBar?
+    * Generate w/ charting library & show in terminal w/ my `brick-image` package?
 * Sorting Tables
     * Add `Maybe (sorting function)` to Column type
     * Keybinding to sort by previous/next column & toggle sort direction
