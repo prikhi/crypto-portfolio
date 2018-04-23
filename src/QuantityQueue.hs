@@ -86,7 +86,7 @@ realizedGains queue =
 -- MANIPULATE
 
 -- | Add a Purchase to the Queue, adjusting the Cost Basis to account for
--- portential fees.
+-- potential fees.
 -- TODO: Handle negative prices in front of queue
 addPurchase :: Quantity -> PricePerUnit -> Maybe Price -> Queue -> Queue
 addPurchase quantity currencyPrice maybeFeeTotal queue =
@@ -97,7 +97,7 @@ addPurchase quantity currencyPrice maybeFeeTotal queue =
             Nothing ->
                 currencyPrice
     in
-        case queue ^. qqQueue of
+        guardZeroQuantity quantity queue $ case queue ^. qqQueue of
             S.Empty ->
                 queue & qqQueue .~ S.singleton (quantity, price)
             rest S.:|> r ->
@@ -106,28 +106,28 @@ addPurchase quantity currencyPrice maybeFeeTotal queue =
                 else
                     queue & qqQueue %~ (S.|> (quantity, price))
 
-
 -- | Remove the given Quantity from the front of Queue & use the sale Price
 -- & purchase Price to adjust the realized gains.
 -- TODO: Handle empty queue, increase negative prices in front of queue
 addSale :: Quantity -> PricePerUnit -> Queue -> Queue
-addSale quantity salePrice queue = case queue ^. qqQueue of
-    S.Empty ->
-        error $ "addSale: empty queue" -- TODO: Handle negative quantities
-            ++ " " ++ show quantity
-    (nextAmount, nextPrice) S.:<| rest
-        | nextAmount > quantity ->
-            queue
-                & qqQueue .~ (nextAmount - quantity, nextPrice) S.<| rest
-                & qqGains %~ (+) ((salePrice - nextPrice) * quantity)
-        | nextAmount < quantity ->
-            addSale (quantity - nextAmount) salePrice
-                $ queue
-                    & qqQueue .~ rest
+addSale quantity salePrice queue =
+    guardZeroQuantity quantity queue $ case queue ^. qqQueue of
+        S.Empty ->
+            error $ "addSale: empty queue" -- TODO: Handle negative quantities
+                ++ " " ++ show quantity ++ "\n" ++ show queue
+        (nextAmount, nextPrice) S.:<| rest
+            | nextAmount > quantity ->
+                queue
+                    & qqQueue .~ (nextAmount - quantity, nextPrice) S.<| rest
+                    & qqGains %~ (+) ((salePrice - nextPrice) * quantity)
+            | nextAmount < quantity ->
+                addSale (quantity - nextAmount) salePrice
+                    $ queue
+                        & qqQueue .~ rest
+                        & qqGains %~ (+) ((salePrice - nextPrice) * nextAmount)
+            | otherwise ->
+                queue & qqQueue .~ rest
                     & qqGains %~ (+) ((salePrice - nextPrice) * nextAmount)
-        | otherwise ->
-            queue & qqQueue .~ rest
-                  & qqGains %~ (+) ((salePrice - nextPrice) * nextAmount)
 
 
 -- | Remove the Fee Quantity without changing the realized gains.
@@ -136,15 +136,27 @@ addSale quantity salePrice queue = case queue ^. qqQueue of
 -- purchased currencies for tax purposes, so we don't want to claim them as
 -- gains.
 --
--- TODO: Handle empty & negatie queues.
+-- TODO: Handle empty & negative queues.
 addFee :: Quantity -> Queue -> Queue
-addFee quantity queue = case queue ^. qqQueue of
-    S.Empty ->
-        error $ "addFee: empty queue" ++ " " ++ show quantity
-    (nextAmount, nextPrice) S.:<| rest
-        | nextAmount > quantity ->
-            queue & qqQueue .~ (nextAmount - quantity, nextPrice) S.<| rest
-        | nextAmount < quantity ->
-            queue & qqQueue .~ rest
-        | otherwise ->
-            queue & qqQueue .~ rest
+addFee quantity queue =
+    guardZeroQuantity quantity queue $ case queue ^. qqQueue of
+        S.Empty ->
+            error $ "addFee: empty queue" ++ " " ++ show quantity
+        (nextAmount, nextPrice) S.:<| rest
+            | nextAmount > quantity ->
+                queue & qqQueue .~ (nextAmount - quantity, nextPrice) S.<| rest
+            | nextAmount < quantity ->
+                addFee (quantity - nextAmount)
+                    $ queue & qqQueue .~ rest
+            | otherwise ->
+                queue & qqQueue .~ rest
+
+
+-- Return the original queue if the quantity is zero, otherwise the updated
+-- one.
+guardZeroQuantity :: Quantity -> Queue -> Queue -> Queue
+guardZeroQuantity q original =
+    if q == 0 then
+        const original
+    else
+        id
