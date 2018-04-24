@@ -106,7 +106,7 @@ data Transaction
         , transactionDate :: UTCTime
         , transactionGroup :: T.Text
         , transactionComment :: T.Text
-        } deriving (Show)
+        } deriving (Show, Eq)
 
 -- | TODO: Change all `Exchange` fields to `Account`? To make more general for wallets
 -- TODO: Change fee's from 2 maybes into single maybe tuple.
@@ -115,7 +115,7 @@ data TransactionData
     | Income IncomeData
     | Expense ExpenseData
     | Transfer TransferData
-    deriving (Show)
+    deriving (Show, Eq)
 
 data TradeData
     = TradeData
@@ -126,7 +126,7 @@ data TradeData
         , tradeFeeQuantity :: Maybe Quantity
         , tradeFeeCurrency :: Maybe Currency
         , tradeExchange :: T.Text
-        } deriving (Show)
+        } deriving (Show, Eq)
 
 data IncomeData
     = IncomeData
@@ -135,7 +135,7 @@ data IncomeData
         , incomeFeeQuantity :: Maybe Quantity
         , incomeFeeCurrency :: Maybe Currency
         , incomeExchange :: T.Text
-        } deriving (Show)
+        } deriving (Show, Eq)
 
 data ExpenseData
     = ExpenseData
@@ -144,7 +144,7 @@ data ExpenseData
         , expenseFeeQuantity :: Maybe Quantity
         , expenseFeeCurrency :: Maybe Currency
         , expenseExchange :: T.Text
-        } deriving (Show)
+        } deriving (Show, Eq)
 
 data TransferData
     = TransferData
@@ -154,7 +154,7 @@ data TransferData
         , transferFeeCurrency :: Maybe Currency
         , transferSourceExchange :: T.Text
         , transferDestinationExchange :: T.Text
-        } deriving (Show)
+        } deriving (Show, Eq)
 
 
 -- | Parse a Transaction from a CoinTracking.Info `Trade Table` Export
