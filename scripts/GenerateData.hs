@@ -37,6 +37,7 @@ import qualified Data.Csv as Csv
 import qualified Data.Map as M
 import qualified Data.Text as T
 
+import CoinTracking
 import Types
 import qualified Binance
 import qualified GDAX
@@ -125,6 +126,7 @@ instance MonadIO m => MonadTransaction (ReaderT env m) where
         liftIO
             . LB.appendFile "trade_table.csv"
             . Csv.encode
+            . map CTTransaction
             $ splitTransfers [transaction]
 
 

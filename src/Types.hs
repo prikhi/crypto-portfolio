@@ -2,15 +2,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Types where
 
-import Control.Monad (mzero)
 import Data.Binary (Binary)
-import Data.Csv ((.!))
 import Data.Ratio (numerator, denominator)
 import Data.Scientific (Scientific)
-import Data.Time (UTCTime, defaultTimeLocale, formatTime)
+import Data.Time (UTCTime)
 import GHC.Generics (Generic)
 
-import qualified Data.Csv as Csv
 import qualified Data.Text as T
 
 -- TODO: Save all this in a Persistent database
@@ -155,111 +152,3 @@ data TransferData
         , transferSourceExchange :: T.Text
         , transferDestinationExchange :: T.Text
         } deriving (Show, Eq)
-
-
--- | Parse a Transaction from a CoinTracking.Info `Trade Table` Export
---
--- We have to use index-based parsing here because the export contains
--- 3 `"Cur."` columns
---
--- TODO: Make a `CTTransaction` newtype in `CoinTracking` module & move these
--- instances over there...
-instance Csv.FromRecord Transaction where
-    parseRecord v =
-        if length v == 11 then do
-            transactionType <- v .! 0
-            date <- read <$> v .! 10
-            group <- v .! 8
-            comment <- v .! 9
-            data_ <-
-                if transactionType == ("Trade" :: String) then
-                    Trade <$>
-                        ( TradeData
-                            <$> (readDecimalQuantity <$> v .! 1)
-                            <*> (Currency <$> v .! 2)
-                            <*> (readDecimalQuantity <$> v .! 3)
-                            <*> (Currency <$> v .! 4)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else if isIncome transactionType then
-                    Income <$>
-                        ( IncomeData
-                            <$> (readDecimalQuantity <$> v .! 1)
-                            <*> (Currency <$> v .! 2)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else if isExpense transactionType then
-                    Expense <$>
-                        ( ExpenseData
-                            <$> (readDecimalQuantity <$> v .! 3)
-                            <*> (Currency <$> v .! 4)
-                            <*> (fmap readDecimalQuantity <$> v .! 5)
-                            <*> (fmap Currency <$> v .! 6)
-                            <*> v .! 7
-                        )
-                else
-                    mzero
-            return $ Transaction data_ date group comment
-        else
-            mzero
-        where
-            isIncome =
-                (`elem` ["Income", "Mining", "Gift/Tip", "Deposit"])
-            isExpense =
-                (`elem` ["Withdrawal", "Spend", "Donation", "Gift", "Stolen/Hacked/Fraud", "Lost"])
--- | Generate a CoinTracking Trade Table Export row from a Transaction.
---
--- This is used by the data generation script.
-instance Csv.ToRecord Transaction where
-    toRecord t = Csv.record
-        [ Csv.toField transactionType
-        , Csv.toField buyQuantity
-        , Csv.toField buyCurrency
-        , Csv.toField sellQuantity
-        , Csv.toField sellCurrency
-        , Csv.toField feeQuantity
-        , Csv.toField feeCurrency
-        , Csv.toField exchange
-        , Csv.toField $ transactionGroup t
-        , Csv.toField $ transactionComment t
-        , Csv.toField $ formatTime defaultTimeLocale "%F %T" $ transactionDate t
-        ]
-        where
-            ( transactionType, buyQuantity, buyCurrency, sellQuantity, sellCurrency, feeQuantity, feeCurrency, exchange ) =
-                case transactionData t of
-                    Trade td ->
-                        ( "Trade" :: String
-                        , show $ tradeBuyQuantity td
-                        , show $ tradeBuyCurrency td
-                        , show $ tradeSellQuantity td
-                        , show $ tradeSellCurrency td
-                        , show <$> tradeFeeQuantity td
-                        , show <$> tradeFeeCurrency td
-                        , tradeExchange td
-                        )
-                    Income d ->
-                        ( "Income"
-                        , show $ incomeQuantity d
-                        , show $ incomeCurrency d
-                        , ""
-                        , ""
-                        , show <$> incomeFeeQuantity d
-                        , show <$> incomeFeeCurrency d
-                        , incomeExchange d
-                        )
-                    Expense ed ->
-                        ( "Spend"
-                        , ""
-                        , ""
-                        , show $ expenseQuantity ed
-                        , show $ expenseCurrency ed
-                        , show <$> expenseFeeQuantity ed
-                        , show <$> expenseFeeCurrency ed
-                        , expenseExchange ed
-                        )
-                    Transfer _ ->
-                        error "toRecord: Cannot Encode Transfers to Single CSV Row"
