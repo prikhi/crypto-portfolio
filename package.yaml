@@ -90,3 +90,6 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - crypto-portfolio
+    - hspec
+    - hedgehog
+    - hw-hspec-hedgehog
